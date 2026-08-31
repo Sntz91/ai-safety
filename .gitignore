@@ -1,0 +1,6 @@
+**/__pycache__/
+scripts/
+deployment/
+runs/
+experiments/outputs/
+tests/

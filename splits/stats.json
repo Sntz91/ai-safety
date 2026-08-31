@@ -1,0 +1,494 @@
+{
+    "bhx": {
+        "all.parquet": {
+            "patients": 388,
+            "series": 545,
+            "slices": 88900,
+            "labels": {
+                "epidural": {
+                    "count": 539,
+                    "prevalence": 0.006062992125984252
+                },
+                "intraparenchymal": {
+                    "count": 4715,
+                    "prevalence": 0.053037120359955
+                },
+                "intraventricular": {
+                    "count": 1392,
+                    "prevalence": 0.015658042744656916
+                },
+                "subarachnoid": {
+                    "count": 5752,
+                    "prevalence": 0.06470191226096737
+                },
+                "subdural": {
+                    "count": 7174,
+                    "prevalence": 0.08069741282339707
+                }
+            }
+        },
+        "test.parquet": {
+            "patients": 39,
+            "series": 52,
+            "slices": 8071,
+            "labels": {
+                "epidural": {
+                    "count": 74,
+                    "prevalence": 0.00916862842274811
+                },
+                "intraparenchymal": {
+                    "count": 397,
+                    "prevalence": 0.0491884524842027
+                },
+                "intraventricular": {
+                    "count": 174,
+                    "prevalence": 0.02155866683186718
+                },
+                "subarachnoid": {
+                    "count": 552,
+                    "prevalence": 0.06839301201833725
+                },
+                "subdural": {
+                    "count": 504,
+                    "prevalence": 0.062445793581960105
+                }
+            }
+        },
+        "train.parquet": {
+            "patients": 310,
+            "series": 437,
+            "slices": 71667,
+            "labels": {
+                "epidural": {
+                    "count": 465,
+                    "prevalence": 0.006488341914688769
+                },
+                "intraparenchymal": {
+                    "count": 3738,
+                    "prevalence": 0.052157896940014235
+                },
+                "intraventricular": {
+                    "count": 1027,
+                    "prevalence": 0.014330165906205087
+                },
+                "subarachnoid": {
+                    "count": 4654,
+                    "prevalence": 0.06493923284077749
+                },
+                "subdural": {
+                    "count": 6031,
+                    "prevalence": 0.0841530969623397
+                }
+            }
+        },
+        "val.parquet": {
+            "patients": 39,
+            "series": 56,
+            "slices": 9162,
+            "labels": {
+                "epidural": {
+                    "count": 0,
+                    "prevalence": 0.0
+                },
+                "intraparenchymal": {
+                    "count": 580,
+                    "prevalence": 0.06330495524994542
+                },
+                "intraventricular": {
+                    "count": 191,
+                    "prevalence": 0.020846976642654443
+                },
+                "subarachnoid": {
+                    "count": 546,
+                    "prevalence": 0.0595939751146038
+                },
+                "subdural": {
+                    "count": 639,
+                    "prevalence": 0.06974459724950884
+                }
+            }
+        }
+    },
+    "rsna": {
+        "all.parquet": {
+            "patients": 18938,
+            "series": 21744,
+            "slices": 752802,
+            "labels": {
+                "epidural": {
+                    "count": 3145,
+                    "prevalence": 0.004177725351420427
+                },
+                "intraparenchymal": {
+                    "count": 36118,
+                    "prevalence": 0.04797808719955579
+                },
+                "intraventricular": {
+                    "count": 26205,
+                    "prevalence": 0.034809950026700245
+                },
+                "subarachnoid": {
+                    "count": 35675,
+                    "prevalence": 0.047389619049896255
+                },
+                "subdural": {
+                    "count": 47166,
+                    "prevalence": 0.06265392493643747
+                }
+            }
+        },
+        "match-sinoct-all.parquet": {
+            "patients": 7251,
+            "series": 8098,
+            "slices": 287251,
+            "labels": {
+                "epidural": {
+                    "count": 1112,
+                    "prevalence": 0.0038711788644774084
+                },
+                "intraparenchymal": {
+                    "count": 6779,
+                    "prevalence": 0.023599569714291682
+                },
+                "intraventricular": {
+                    "count": 4137,
+                    "prevalence": 0.014402038635200573
+                },
+                "subarachnoid": {
+                    "count": 7503,
+                    "prevalence": 0.026120013507350714
+                },
+                "subdural": {
+                    "count": 9887,
+                    "prevalence": 0.034419375389467745
+                }
+            }
+        },
+        "match-sinoct-test.parquet": {
+            "patients": 726,
+            "series": 792,
+            "slices": 28205,
+            "labels": {
+                "epidural": {
+                    "count": 156,
+                    "prevalence": 0.005530934231519234
+                },
+                "intraparenchymal": {
+                    "count": 632,
+                    "prevalence": 0.022407374578975358
+                },
+                "intraventricular": {
+                    "count": 356,
+                    "prevalence": 0.01262187555397979
+                },
+                "subarachnoid": {
+                    "count": 738,
+                    "prevalence": 0.026165573479879453
+                },
+                "subdural": {
+                    "count": 780,
+                    "prevalence": 0.02765467115759617
+                }
+            }
+        },
+        "match-sinoct-train.parquet": {
+            "patients": 5800,
+            "series": 6479,
+            "slices": 229515,
+            "labels": {
+                "epidural": {
+                    "count": 894,
+                    "prevalence": 0.003895170250310437
+                },
+                "intraparenchymal": {
+                    "count": 5344,
+                    "prevalence": 0.02328388122780646
+                },
+                "intraventricular": {
+                    "count": 3371,
+                    "prevalence": 0.01468749319216609
+                },
+                "subarachnoid": {
+                    "count": 5949,
+                    "prevalence": 0.02591987451800536
+                },
+                "subdural": {
+                    "count": 8053,
+                    "prevalence": 0.03508703134871359
+                }
+            }
+        },
+        "match-sinoct-val.parquet": {
+            "patients": 725,
+            "series": 827,
+            "slices": 29531,
+            "labels": {
+                "epidural": {
+                    "count": 62,
+                    "prevalence": 0.0020994886729199824
+                },
+                "intraparenchymal": {
+                    "count": 803,
+                    "prevalence": 0.02719176458636687
+                },
+                "intraventricular": {
+                    "count": 410,
+                    "prevalence": 0.013883715417696658
+                },
+                "subarachnoid": {
+                    "count": 816,
+                    "prevalence": 0.027631979953269447
+                },
+                "subdural": {
+                    "count": 1054,
+                    "prevalence": 0.0356913074396397
+                }
+            }
+        },
+        "no-match-sinoct-all.parquet": {
+            "patients": 11733,
+            "series": 13647,
+            "slices": 465551,
+            "labels": {
+                "epidural": {
+                    "count": 2033,
+                    "prevalence": 0.004366868506350539
+                },
+                "intraparenchymal": {
+                    "count": 29339,
+                    "prevalence": 0.06301994840522306
+                },
+                "intraventricular": {
+                    "count": 22068,
+                    "prevalence": 0.047401895818073636
+                },
+                "subarachnoid": {
+                    "count": 28172,
+                    "prevalence": 0.060513241299019874
+                },
+                "subdural": {
+                    "count": 37279,
+                    "prevalence": 0.080075007893872
+                }
+            }
+        },
+        "no-match-sinoct-test.parquet": {
+            "patients": 1174,
+            "series": 1319,
+            "slices": 45032,
+            "labels": {
+                "epidural": {
+                    "count": 190,
+                    "prevalence": 0.0042192218866583765
+                },
+                "intraparenchymal": {
+                    "count": 2740,
+                    "prevalence": 0.06084562089181027
+                },
+                "intraventricular": {
+                    "count": 2148,
+                    "prevalence": 0.04769941375022206
+                },
+                "subarachnoid": {
+                    "count": 2627,
+                    "prevalence": 0.05833629419079765
+                },
+                "subdural": {
+                    "count": 3622,
+                    "prevalence": 0.0804316930182981
+                }
+            }
+        },
+        "no-match-sinoct-train.parquet": {
+            "patients": 9386,
+            "series": 10957,
+            "slices": 373848,
+            "labels": {
+                "epidural": {
+                    "count": 1596,
+                    "prevalence": 0.004269114720421133
+                },
+                "intraparenchymal": {
+                    "count": 23658,
+                    "prevalence": 0.06328240354368621
+                },
+                "intraventricular": {
+                    "count": 17635,
+                    "prevalence": 0.0471715777535255
+                },
+                "subarachnoid": {
+                    "count": 22647,
+                    "prevalence": 0.06057809591063748
+                },
+                "subdural": {
+                    "count": 29983,
+                    "prevalence": 0.08020104427467847
+                }
+            }
+        },
+        "no-match-sinoct-val.parquet": {
+            "patients": 1173,
+            "series": 1371,
+            "slices": 46671,
+            "labels": {
+                "epidural": {
+                    "count": 247,
+                    "prevalence": 0.005292365708898459
+                },
+                "intraparenchymal": {
+                    "count": 2941,
+                    "prevalence": 0.06301557712498125
+                },
+                "intraventricular": {
+                    "count": 2285,
+                    "prevalence": 0.0489597394527651
+                },
+                "subarachnoid": {
+                    "count": 2898,
+                    "prevalence": 0.062094234106832936
+                },
+                "subdural": {
+                    "count": 3674,
+                    "prevalence": 0.07872126159713741
+                }
+            }
+        }
+    },
+    "sinoct": {
+        "all.parquet": {
+            "patients": 8560,
+            "series": 9779,
+            "slices": 347204,
+            "labels": {
+                "abnormal": {
+                    "count": 192986,
+                    "prevalence": 0.5558288498980426
+                },
+                "normal": {
+                    "count": 154218,
+                    "prevalence": 0.44417115010195735
+                }
+            }
+        },
+        "match-rsna-all.parquet": {
+            "patients": 7251,
+            "series": 8099,
+            "slices": 287290,
+            "labels": {
+                "abnormal": {
+                    "count": 160651,
+                    "prevalence": 0.5591945421003167
+                },
+                "normal": {
+                    "count": 126639,
+                    "prevalence": 0.44080545789968323
+                }
+            }
+        },
+        "match-rsna-test.parquet": {
+            "patients": 726,
+            "series": 808,
+            "slices": 28869,
+            "labels": {
+                "abnormal": {
+                    "count": 16011,
+                    "prevalence": 0.5546087498701029
+                },
+                "normal": {
+                    "count": 12858,
+                    "prevalence": 0.4453912501298971
+                }
+            }
+        },
+        "match-rsna-train.parquet": {
+            "patients": 5801,
+            "series": 6485,
+            "slices": 230106,
+            "labels": {
+                "abnormal": {
+                    "count": 128916,
+                    "prevalence": 0.5602461474277072
+                },
+                "normal": {
+                    "count": 101190,
+                    "prevalence": 0.43975385257229277
+                }
+            }
+        },
+        "match-rsna-val.parquet": {
+            "patients": 724,
+            "series": 806,
+            "slices": 28315,
+            "labels": {
+                "abnormal": {
+                    "count": 15724,
+                    "prevalence": 0.5553240331979516
+                },
+                "normal": {
+                    "count": 12591,
+                    "prevalence": 0.4446759668020484
+                }
+            }
+        },
+        "no-match-rsna-all.parquet": {
+            "patients": 1482,
+            "series": 1702,
+            "slices": 59914,
+            "labels": {
+                "abnormal": {
+                    "count": 32335,
+                    "prevalence": 0.5396902226524686
+                },
+                "normal": {
+                    "count": 27579,
+                    "prevalence": 0.4603097773475315
+                }
+            }
+        },
+        "no-match-rsna-test.parquet": {
+            "patients": 147,
+            "series": 173,
+            "slices": 6218,
+            "labels": {
+                "abnormal": {
+                    "count": 3500,
+                    "prevalence": 0.5628819556127372
+                },
+                "normal": {
+                    "count": 2718,
+                    "prevalence": 0.43711804438726276
+                }
+            }
+        },
+        "no-match-rsna-train.parquet": {
+            "patients": 1186,
+            "series": 1353,
+            "slices": 47501,
+            "labels": {
+                "abnormal": {
+                    "count": 25363,
+                    "prevalence": 0.5339466537546578
+                },
+                "normal": {
+                    "count": 22138,
+                    "prevalence": 0.4660533462453422
+                }
+            }
+        },
+        "no-match-rsna-val.parquet": {
+            "patients": 149,
+            "series": 176,
+            "slices": 6195,
+            "labels": {
+                "abnormal": {
+                    "count": 3472,
+                    "prevalence": 0.56045197740113
+                },
+                "normal": {
+                    "count": 2723,
+                    "prevalence": 0.43954802259887005
+                }
+            }
+        }
+    }
+}
