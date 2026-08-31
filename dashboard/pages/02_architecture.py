@@ -189,7 +189,7 @@ mermaid_code = "\n".join(lines)
 html_code = f"""
     <div style="text-align: right; margin-bottom: 10px;">
         <a id="download-link" href="#" download="architecture.svg" style="color: #cad3f5; text-decoration: none; font-family: sans-serif; background-color: #363a4f; padding: 8px 12px; border-radius: 6px; font-size: 14px;">
-            ⬇️ Download SVG
+            Download SVG
         </a>
     </div>
     <div id="graph-container" style="display: flex; justify-content: center; width: 100%;">

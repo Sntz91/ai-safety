@@ -1,4 +1,5 @@
 import json
+import yaml
 import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
@@ -57,7 +58,7 @@ selected_level = st.sidebar.radio("Aggregation Level", levels, index=default_idx
 
 st.subheader(f"Metrics for {selected_ds} ({selected_subtype}) - {selected_level.replace('_', ' ').title()}")
 
-tab1, tab2, tab3 = st.tabs(["📊 Metrics Overview", "📈 Performance Curves", "📊 Probability Distribution"])
+tab1, tab2, tab3, tab4 = st.tabs(["Metrics Overview", "Performance Curves", "Probability Distribution", "Configuration"])
 
 with tab1:
     st.markdown("### Continuous Metrics Comparison")
@@ -220,3 +221,90 @@ with tab3:
                 st.warning(f"Could not find probability/label columns for {selected_subtype} in {run}.")
         else:
             st.warning(f"Predictions CSV not found for {run} on dataset {selected_ds}.")
+
+
+with tab4:
+    st.markdown("### Experiment Configuration")
+    run_configs = {}
+    for run in selected_runs:
+        cfg_path = Path(f"runs/diagnostic/{run}/config.yaml")
+        if cfg_path.exists():
+            with open(cfg_path, "r") as f:
+                run_configs[run] = yaml.safe_load(f)
+
+    if not run_configs:
+        st.warning("No configuration files found for the selected runs in runs/diagnostic/.")
+    elif len(selected_runs) > 1:
+        st.markdown("#### Configuration Comparison")
+        only_diffs = st.checkbox("Only show differences", value=True, key="diag_only_diffs")
+
+        def flatten_dict(d, parent_key=""):
+            items = []
+            for k, v in d.items():
+                new_key = f"{parent_key}.{k}" if parent_key else k
+                if isinstance(v, dict):
+                    items.extend(flatten_dict(v, new_key).items())
+                elif isinstance(v, list):
+                    if all(isinstance(item, dict) for item in v):
+                        summary = ", ".join(item.get("name", item.get("dataset", str(item))) for item in v)
+                        items.append((new_key, summary))
+                    else:
+                        items.append((new_key, ", ".join(str(i) for i in v)))
+                else:
+                    items.append((new_key, v))
+            return dict(items)
+
+        flat_configs = {run: flatten_dict(cfg) for run, cfg in run_configs.items()}
+        all_keys = []
+        for flat in flat_configs.values():
+            for k in flat:
+                if k not in all_keys:
+                    all_keys.append(k)
+
+        rows = []
+        for key in all_keys:
+            row = {"Parameter": key}
+            values = []
+            for run in selected_runs:
+                val = flat_configs.get(run, {}).get(key, "-")
+                row[run] = str(val) if val is not None else "None"
+                values.append(row[run])
+
+            all_equal = len(set(values)) == 1
+            if not (only_diffs and all_equal):
+                rows.append(row)
+
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("All selected runs have identical configurations.")
+
+        st.markdown("#### Raw Configuration Files")
+        cols = st.columns(len(selected_runs))
+        for col, run in zip(cols, selected_runs):
+            with col:
+                st.caption(f"**Run: {run}**")
+                if run in run_configs:
+                    st.code(yaml.dump(run_configs[run], sort_keys=False), language="yaml")
+                else:
+                    st.warning("Config not found")
+    else:
+        run = selected_runs[0]
+        cfg = run_configs.get(run, {})
+        st.markdown(f"#### Configuration for Run `{run}`")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Model & Loss**")
+            st.json({
+                "model": cfg.get("model", {}),
+                "loss": cfg.get("loss", {}),
+            })
+        with col2:
+            st.markdown("**Training & Optimizer**")
+            st.json({
+                "training": cfg.get("training", {}),
+                "optimizer": cfg.get("optimizer", {}),
+            })
+        with st.expander("View Full Raw YAML Configuration", expanded=False):
+            st.code(yaml.dump(cfg, sort_keys=False), language="yaml")
+

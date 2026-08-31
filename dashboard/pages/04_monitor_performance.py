@@ -25,104 +25,132 @@ if not available_runs:
     st.error("No monitor evaluation outputs found.")
     st.stop()
 
-selected_run = st.sidebar.selectbox("Select Monitor Run ID", available_runs)
-run_path = out_dir / selected_run
-metrics_path = run_path / "metrics.json"
-curves_path = run_path / "curves.json"
+selected_runs = st.sidebar.multiselect("Select Monitor Runs to Compare", available_runs, default=[available_runs[0]])
 
-with open(metrics_path, "r") as f:
-    metrics = json.load(f)
-with open(curves_path, "r") as f:
-    curves = json.load(f)
+if not selected_runs:
+    st.info("Please select at least one run.")
+    st.stop()
 
-datasets = list(metrics.keys())
+runs_data = {}
+for run in selected_runs:
+    run_path = out_dir / run
+    metrics_path = run_path / "metrics.json"
+    curves_path = run_path / "curves.json"
+    if metrics_path.exists() and curves_path.exists():
+        with open(metrics_path, "r") as f:
+            m = json.load(f)
+        with open(curves_path, "r") as f:
+            c = json.load(f)
+        runs_data[run] = {"metrics": m, "curves": c}
+    else:
+        st.warning(f"Metrics or curves missing for {run}.")
+
+if not runs_data:
+    st.stop()
+
+base_run = selected_runs[0]
+base_metrics = runs_data[base_run]["metrics"]
+
+datasets = list(base_metrics.keys())
 selected_ds = st.sidebar.selectbox("Select Dataset Split", datasets)
-subtypes = list(metrics[selected_ds].keys())
+subtypes = list(base_metrics[selected_ds].keys()) if selected_ds in base_metrics else []
 selected_subtype = st.sidebar.selectbox("Select Target Class", subtypes)
 
 # Select Level (Slice vs Scan)
-levels = list(metrics[selected_ds][selected_subtype].keys())
+levels = list(base_metrics[selected_ds][selected_subtype].keys()) if selected_subtype in subtypes else []
 default_idx = levels.index("slice_level") if "slice_level" in levels else 0
 selected_level = st.sidebar.radio("Aggregation Level", levels, index=default_idx)
 
 # Select Model (Monitor vs Threshold-distance baseline)
-models = list(metrics[selected_ds][selected_subtype][selected_level].keys())
+models = list(base_metrics[selected_ds][selected_subtype][selected_level].keys()) if selected_level in levels else []
 selected_model = st.sidebar.radio("Model", models)
-
-ds_metrics = metrics[selected_ds][selected_subtype][selected_level][selected_model]
-ds_curves = curves[selected_ds][selected_subtype][selected_level][selected_model]
-
-if not ds_metrics:
-    st.error(f"No {selected_level} metrics available for {selected_ds}")
-    st.stop()
 
 st.subheader(f"Metrics for {selected_ds} ({selected_subtype}) - {selected_level.replace('_', ' ').title()}")
 
-tab1, tab2, tab3 = st.tabs(["📊 Metrics Overview", "📈 Performance Curves", "🕸️ Safety Net Flow"])
+tab1, tab2, tab3, tab4 = st.tabs(["Metrics Overview", "Performance Curves", "Safety Net Flow", "Configuration"])
 
 with tab1:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### Continuous Metrics")
-        m_cont = ds_metrics["continuous"]
+        st.markdown(f"### Continuous Metrics Comparison ({selected_model})")
+        metric_keys = [("AUROC", "auroc"), ("AUPRC", "auprc"), ("Brier Score", "brier"), ("ECE", "ece"), ("AdaECE", "ada_ece")]
+        comp_data = []
+        for name, key in metric_keys:
+            row = {"Metric": name}
+            for run in selected_runs:
+                val_str = "N/A"
+                if run in runs_data:
+                    m_blk = runs_data[run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
+                    if "continuous" in m_blk and key in m_blk["continuous"]:
+                        val = m_blk["continuous"][key]["value"]
+                        ci_l = m_blk["continuous"][key]["ci_lower"]
+                        ci_u = m_blk["continuous"][key]["ci_upper"]
+                        val_str = f"{val:.4f} [{ci_l:.4f}, {ci_u:.4f}]"
+                row[run] = val_str
+            comp_data.append(row)
+        st.dataframe(pd.DataFrame(comp_data), use_container_width=True, hide_index=True)
         
-        data_cont = []
-        for name, key in [("AUROC", "auroc"), ("AUPRC", "auprc"), ("Brier Score", "brier"), ("ECE", "ece"), ("AdaECE", "ada_ece")]:
-            if key in m_cont:
-                val = m_cont[key]["value"]
-                ci_l = m_cont[key]["ci_lower"]
-                ci_u = m_cont[key]["ci_upper"]
-                data_cont.append({"Metric": name, "Value": f"{val:.4f}", "95% CI": f"[{ci_l:.4f}, {ci_u:.4f}]"})
-                
-        st.dataframe(pd.DataFrame(data_cont), use_container_width=True, hide_index=True)
-        
-        if "recall_at_0.05" in ds_metrics.get("continuous", {}):
-            st.markdown("**Clinical Utility (Budget vs Recall)**")
-            data_budget = []
-            for frac in [0.05, 0.1, 0.2]:
-                recall = ds_metrics["continuous"].get(f"recall_at_{frac}", 0.0)
-                frr = ds_metrics["continuous"].get(f"frr_at_{frac}", 0.0)
-                data_budget.append({"Budget": f"{int(frac*100)}%", "Recall": f"{recall*100:.2f}%", "FRR": f"{frr*100:.2f}%"})
-            st.dataframe(pd.DataFrame(data_budget), use_container_width=True, hide_index=True)
+        if len(selected_runs) == 1:
+            base_m = runs_data[base_run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
+            if "recall_at_0.05" in base_m.get("continuous", {}):
+                st.markdown("**Clinical Utility (Budget vs Recall)**")
+                data_budget = []
+                for frac in [0.05, 0.1, 0.2]:
+                    recall = base_m["continuous"].get(f"recall_at_{frac}", 0.0)
+                    frr = base_m["continuous"].get(f"frr_at_{frac}", 0.0)
+                    data_budget.append({"Budget": f"{int(frac*100)}%", "Recall": f"{recall*100:.2f}%", "FRR": f"{frr*100:.2f}%"})
+                st.dataframe(pd.DataFrame(data_budget), use_container_width=True, hide_index=True)
         
     with col2:
         st.markdown("### Operating Point (Discrete)")
-        threshold_names = list(ds_metrics["discrete"].keys())
-        selected_thresh = st.selectbox("Threshold Method", threshold_names, label_visibility="collapsed")
-        
-        thresh_data = ds_metrics["discrete"][selected_thresh]
-        
-        st.caption(f"Applied Threshold Value: {thresh_data['threshold']:.4f}")
-        
-        data_disc = []
-        for name, key in [("F1 Score", "f1"), ("Sensitivity", "sensitivity"), ("Specificity", "specificity"), ("Precision", "ppv")]:
-            val = thresh_data[key]["value"]
-            ci_l = thresh_data[key]["ci_lower"]
-            ci_u = thresh_data[key]["ci_upper"]
-            data_disc.append({"Metric": name, "Value": f"{val:.4f}", "95% CI": f"[{ci_l:.4f}, {ci_u:.4f}]"})
-            
-        st.dataframe(pd.DataFrame(data_disc), use_container_width=True, hide_index=True)
-        
-        c = thresh_data["confusion"]
-        st.markdown(f"**Confusion Matrix:** TP: `{c['tp']}` | FP: `{c['fp']}` | TN: `{c['tn']}` | FN: `{c['fn']}`")
+        if len(selected_runs) == 1:
+            run = selected_runs[0]
+            ds_metrics = runs_data[run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
+            if ds_metrics and "discrete" in ds_metrics:
+                threshold_names = list(ds_metrics["discrete"].keys())
+                selected_thresh = st.selectbox("Threshold Method", threshold_names, label_visibility="collapsed")
+                thresh_data = ds_metrics["discrete"][selected_thresh]
+                st.caption(f"Applied Threshold Value: {thresh_data['threshold']:.4f}")
+                data_disc = []
+                for name, key in [("F1 Score", "f1"), ("Sensitivity", "sensitivity"), ("Specificity", "specificity"), ("Precision", "ppv")]:
+                    val = thresh_data[key]["value"]
+                    ci_l = thresh_data[key]["ci_lower"]
+                    ci_u = thresh_data[key]["ci_upper"]
+                    data_disc.append({"Metric": name, "Value": f"{val:.4f}", "95% CI": f"[{ci_l:.4f}, {ci_u:.4f}]"})
+                st.dataframe(pd.DataFrame(data_disc), use_container_width=True, hide_index=True)
+                c = thresh_data["confusion"]
+                st.markdown(f"**Confusion Matrix:** TP: `{c['tp']}` | FP: `{c['fp']}` | TN: `{c['tn']}` | FN: `{c['fn']}`")
+        else:
+            st.info("Operating Point thresholds are shown for single-run view. Select 1 run to view discrete thresholds.")
 
 with tab2:
     fig_cols = st.columns(2)
-
-    fpr = ds_curves["roc"]["fpr"]
-    tpr = ds_curves["roc"]["tpr"]
     fig_roc = go.Figure()
-    fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name='ROC', line=dict(color='#8aadf4', width=2)))
-    fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash', color='gray'), name='Random'))
-    fig_roc.update_layout(title="ROC Curve", xaxis_title="False Positive Rate", yaxis_title="True Positive Rate", template="plotly_dark")
+    fig_pr = go.Figure()
+    colors = ['#8aadf4', '#a6da95', '#ed8796', '#eed49f', '#c6a0f6']
+    
+    for i, run in enumerate(selected_runs):
+        color = colors[i % len(colors)]
+        if run in runs_data:
+            c = runs_data[run]["curves"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
+            m = runs_data[run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
+            if "roc" in c:
+                fpr = c["roc"]["fpr"]
+                tpr = c["roc"]["tpr"]
+                auroc = m["continuous"]["auroc"]["value"] if "continuous" in m and "auroc" in m["continuous"] else 0
+                fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f'{run} ({selected_model}, AUC: {auroc:.3f})', line=dict(color=color, width=2)))
+            if "pr" in c:
+                prec = c["pr"]["precision"]
+                rec = c["pr"]["recall"]
+                auprc = m["continuous"]["auprc"]["value"] if "continuous" in m and "auprc" in m["continuous"] else 0
+                fig_pr.add_trace(go.Scatter(x=rec, y=prec, mode='lines', name=f'{run} ({selected_model}, AUC: {auprc:.3f})', line=dict(color=color, width=2)))
+
+    fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash', color='gray'), name='Random', showlegend=False))
+    fig_roc.update_layout(title="ROC Curve Comparison", xaxis_title="False Positive Rate", yaxis_title="True Positive Rate", template="plotly_dark")
     fig_cols[0].plotly_chart(fig_roc, use_container_width=True)
 
-    prec = ds_curves["pr"]["precision"]
-    rec = ds_curves["pr"]["recall"]
-    fig_pr = go.Figure()
-    fig_pr.add_trace(go.Scatter(x=rec, y=prec, mode='lines', name='PR', line=dict(color='#a6da95', width=2)))
-    fig_pr.update_layout(title="Precision-Recall Curve", xaxis_title="Recall", yaxis_title="Precision", template="plotly_dark")
+    fig_pr.update_layout(title="Precision-Recall Curve Comparison", xaxis_title="Recall", yaxis_title="Precision", template="plotly_dark")
     fig_cols[1].plotly_chart(fig_pr, use_container_width=True)
 
 
@@ -212,17 +240,18 @@ def compute_flow_data(df, subtype, level, d_thresh, m_thresh):
 
 with tab3:
     st.markdown("Visualizes how diagnostic errors flow into the monitoring system, highlighting safety net successes and double failures.")
+    active_run = st.selectbox("Select Monitor Run for Flow", selected_runs, key="flow_run_select") if len(selected_runs) > 1 else selected_runs[0]
     try:
-        mon_cfg = load_config(Path("runs/monitor") / selected_run / "config.yaml")
+        mon_cfg = load_config(Path("runs/monitor") / active_run / "config.yaml")
         diag_dir = Path(mon_cfg.get('diagnostic', {}).get('run_dir', ''))
         diag_run_name = diag_dir.name
         
-        df = load_and_merge_data(selected_run, diag_run_name, selected_ds)
+        df = load_and_merge_data(active_run, diag_run_name, selected_ds)
         if df is None:
             st.warning(f"Prediction files missing for {selected_ds}. Cannot generate Safety Net Flow.")
         else:
             diag_thresh = load_thresholds(diag_dir)
-            mon_thresh = load_thresholds(Path("runs/monitor") / selected_run)
+            mon_thresh = load_thresholds(Path("runs/monitor") / active_run)
             
             subtypes_list = []
             for col in df.columns:
@@ -293,7 +322,7 @@ with tab3:
             html_code = f"""
                 <div style="text-align: right; margin-bottom: 10px;">
                     <a id="download-link" href="#" download="safety_net_flow.svg" style="color: #cad3f5; text-decoration: none; font-family: sans-serif; background-color: #363a4f; padding: 8px 12px; border-radius: 6px; font-size: 14px;">
-                        ⬇️ Download SVG
+                        Download SVG
                     </a>
                 </div>
                 <div id="graph-container" style="display: flex; justify-content: center; width: 100%;">
@@ -341,10 +370,100 @@ with tab3:
             
             st.markdown("""
             ### Legend
-            - 🟢 **Safety Net Success:** The Diagnostic model made an error, and the Monitor successfully flagged it.
-            - 🔵 **Perfect Harmony:** The Diagnostic model was correct, and the Monitor agreed.
-            - 🟡 **Wasted Review (False Alarm):** The Diagnostic model was correct, but the Monitor incorrectly flagged it for review.
-            - 🔴 **Double Failure:** The Diagnostic model made an error, and the Monitor completely missed it.
+            - **[Green / Success] Safety Net Success:** The Diagnostic model made an error, and the Monitor successfully flagged it.
+            - **[Blue / Harmony] Perfect Harmony:** The Diagnostic model was correct, and the Monitor agreed.
+            - **[Yellow / Warning] Wasted Review:** The Diagnostic model was correct, but the Monitor incorrectly flagged it for review.
+            - **[Red / Critical] Double Failure:** The Diagnostic model made an error, and the Monitor completely missed it.
             """)
     except FileNotFoundError:
         st.warning("Config file for this run could not be found.")
+
+
+with tab4:
+    st.markdown("### Experiment Configuration")
+    run_configs = {}
+    for run in selected_runs:
+        cfg_path = Path(f"runs/monitor/{run}/config.yaml")
+        if cfg_path.exists():
+            with open(cfg_path, "r") as f:
+                run_configs[run] = yaml.safe_load(f)
+
+    if not run_configs:
+        st.warning("No configuration files found for the selected runs in runs/monitor/.")
+    elif len(selected_runs) > 1:
+        st.markdown("#### Configuration Comparison")
+        only_diffs = st.checkbox("Only show differences", value=True, key="mon_only_diffs")
+
+        def flatten_dict(d, parent_key=""):
+            items = []
+            for k, v in d.items():
+                new_key = f"{parent_key}.{k}" if parent_key else k
+                if isinstance(v, dict):
+                    items.extend(flatten_dict(v, new_key).items())
+                elif isinstance(v, list):
+                    if all(isinstance(item, dict) for item in v):
+                        summary = ", ".join(item.get("name", item.get("dataset", str(item))) for item in v)
+                        items.append((new_key, summary))
+                    else:
+                        items.append((new_key, ", ".join(str(i) for i in v)))
+                else:
+                    items.append((new_key, v))
+            return dict(items)
+
+        flat_configs = {run: flatten_dict(cfg) for run, cfg in run_configs.items()}
+        all_keys = []
+        for flat in flat_configs.values():
+            for k in flat:
+                if k not in all_keys:
+                    all_keys.append(k)
+
+        rows = []
+        for key in all_keys:
+            row = {"Parameter": key}
+            values = []
+            for run in selected_runs:
+                val = flat_configs.get(run, {}).get(key, "-")
+                row[run] = str(val) if val is not None else "None"
+                values.append(row[run])
+
+            all_equal = len(set(values)) == 1
+            if not (only_diffs and all_equal):
+                rows.append(row)
+
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("All selected runs have identical configurations.")
+
+        st.markdown("#### Raw Configuration Files")
+        cols = st.columns(len(selected_runs))
+        for col, run in zip(cols, selected_runs):
+            with col:
+                st.caption(f"**Run: {run}**")
+                if run in run_configs:
+                    st.code(yaml.dump(run_configs[run], sort_keys=False), language="yaml")
+                else:
+                    st.warning("Config not found")
+    else:
+        run = selected_runs[0]
+        cfg = run_configs.get(run, {})
+        st.markdown(f"#### Configuration for Run `{run}`")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Diagnostic Reference & Model**")
+            st.json({
+                "diagnostic": cfg.get("diagnostic", {}),
+                "monitor": cfg.get("monitor", {}),
+                "model": cfg.get("model", {}),
+                "loss": cfg.get("loss", {}),
+            })
+        with col2:
+            st.markdown("**Training & Optimizer**")
+            st.json({
+                "training": cfg.get("training", {}),
+                "optimizer": cfg.get("optimizer", {}),
+                "scheduler": cfg.get("scheduler", {}),
+            })
+        with st.expander("View Full Raw YAML Configuration", expanded=False):
+            st.code(yaml.dump(cfg, sort_keys=False), language="yaml")
+
