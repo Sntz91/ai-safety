@@ -127,6 +127,21 @@ if mon_metrics_file.exists():
                 node_labels[ds] += f"<br/>Mon AUROC: {auroc:.3f}"
 
 
+def fmt_thresholds(vals):
+    if not vals:
+        return ""
+    formatted = [f"{v:.3f}" if isinstance(v, (int, float)) else str(v) for v in vals]
+    return f"[{', '.join(formatted)}]" if len(formatted) > 1 else formatted[0]
+
+diag_thresh_file = Path(diag_dir) / "thresholds.yaml"
+diag_t_slice = fmt_thresholds(load_config(diag_thresh_file).get("slice", [])) if diag_thresh_file.exists() else ""
+
+mon_thresh_file = monitor_runs_dir / selected_monitor_run / "thresholds.yaml"
+mon_t_slice = fmt_thresholds(load_config(mon_thresh_file).get("slice", [])) if mon_thresh_file.exists() else ""
+
+diag_val_edge = f"Validates and Locks Threshold - 85% Sens (tau={diag_t_slice})" if diag_t_slice else "Validates and Locks Threshold - 85% Sens"
+mon_val_edge = f"Validates and Locks Threshold - 85% Sens (tau={mon_t_slice})" if mon_t_slice else "Validates and Locks Threshold - 85% Sens"
+
 # Build Mermaid Graph dynamically
 lines = ['graph LR']
 
@@ -135,12 +150,12 @@ for ds in diag_train:
     lines.append(f'        {sanitize(ds)}["{node_labels[ds]}"]:::diagData')
 for ds in diag_val:
     lines.append(f'        {sanitize(ds)}["{node_labels[ds]}"]:::diagData')
-lines.append(f'        DiagModel((Diagnostic Model<br/>{diag_model})):::model')
+lines.append(f'        DiagModel(("Diagnostic Model<br/>{diag_model}{"<br/>tau=" + diag_t_slice if diag_t_slice else ""}")):::model')
 
 for ds in diag_train:
     lines.append(f'        {sanitize(ds)} -->|Trains| DiagModel')
 for ds in diag_val:
-    lines.append(f'        {sanitize(ds)} -->|Validates and Locks Threshold - 85 Sens| DiagModel')
+    lines.append(f'        {sanitize(ds)} -->|"{diag_val_edge}"| DiagModel')
 lines.append('    end')
 
 
@@ -150,12 +165,12 @@ pure_eval_sets = set(mon_eval)
 lines.append('    subgraph cluster_monitoring [Monitoring Phase]')
 for ds in intermediate_sets:
     lines.append(f'        {sanitize(ds)}["{node_labels[ds]}"]:::monData')
-lines.append(f'        MonModel((Monitor Model<br/>{mon_model})):::model')
+lines.append(f'        MonModel(("Monitor Model<br/>{mon_model}{"<br/>tau=" + mon_t_slice if mon_t_slice else ""}")):::model')
 
 for ds in mon_train:
     lines.append(f'        {sanitize(ds)} -->|Trains on failures| MonModel')
 for ds in mon_val:
-    lines.append(f'        {sanitize(ds)} -->|Validates and Locks Threshold - 85 Sens| MonModel')
+    lines.append(f'        {sanitize(ds)} -->|"{mon_val_edge}"| MonModel')
 lines.append('    end')
 
 
@@ -195,10 +210,12 @@ html_code = f"""
     <div id="graph-container" style="display: flex; justify-content: center; width: 100%;">
     </div>
     <script type="module">
-        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
         mermaid.initialize({{ 
             startOnLoad: false, 
             theme: 'dark',
+            securityLevel: 'loose',
+            htmlLabels: true,
             themeVariables: {{
                 edgeLabelBackground: '{COLORS["edge_label_bg"]}'
             }}

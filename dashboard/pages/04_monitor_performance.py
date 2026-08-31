@@ -280,35 +280,35 @@ with tab3:
                 # Level 2: Diagnostic Model
                 f'    B_TP["Diagnostic Correct TP - N={flow["dis_pos"]["diag_tp"]["total"]}"]',
                 f'    B_FN["Diagnostic Miss FN - N={flow["dis_pos"]["diag_fn"]["total"]}"]:::critical',
-                "    B --> B_TP",
-                "    B -->|Missed Disease| B_FN",
+                f'    B -->|"Predicts Pos (p &ge; {def_diag_t:.3f})"| B_TP',
+                f'    B -->|"Missed Disease (p &lt; {def_diag_t:.3f})"| B_FN',
                 
                 f'    C_TN["Diagnostic Correct TN - N={flow["dis_neg"]["diag_tn"]["total"]}"]',
                 f'    C_FP["Diagnostic False Alarm FP - N={flow["dis_neg"]["diag_fp"]["total"]}"]:::critical',
-                "    C --> C_TN",
-                "    C -->|False Alarm| C_FP",
+                f'    C -->|"Predicts Neg (p &lt; {def_diag_t:.3f})"| C_TN',
+                f'    C -->|"False Alarm (p &ge; {def_diag_t:.3f})"| C_FP',
                 
                 # Level 3: Monitor Action on Diagnostic Correct
                 f'    B_TP_FP["Monitor Flags FP - N={flow["dis_pos"]["diag_tp"]["mon_fp"]}"]:::waste',
                 f'    B_TP_TN["Monitor Ignores TN - N={flow["dis_pos"]["diag_tp"]["mon_tn"]}"]:::harmony',
-                "    B_TP -->|Flags| B_TP_FP",
-                "    B_TP -->|Ignores| B_TP_TN",
+                f'    B_TP -->|"Flags (p &ge; {def_mon_t:.3f})"| B_TP_FP',
+                f'    B_TP -->|"Ignores (p &lt; {def_mon_t:.3f})"| B_TP_TN',
                 
                 f'    C_TN_FP["Monitor Flags FP - N={flow["dis_neg"]["diag_tn"]["mon_fp"]}"]:::waste',
                 f'    C_TN_TN["Monitor Ignores TN - N={flow["dis_neg"]["diag_tn"]["mon_tn"]}"]:::harmony',
-                "    C_TN -->|Flags| C_TN_FP",
-                "    C_TN -->|Ignores| C_TN_TN",
+                f'    C_TN -->|"Flags (p &ge; {def_mon_t:.3f})"| C_TN_FP',
+                f'    C_TN -->|"Ignores (p &lt; {def_mon_t:.3f})"| C_TN_TN',
                 
                 # Level 3: Monitor Action on Diagnostic Errors (The Safety Net)
                 f'    B_FN_TP["Safety Net Catches It TP - N={flow["dis_pos"]["diag_fn"]["mon_tp"]}"]:::success',
                 f'    B_FN_FN["Double Failure FN - N={flow["dis_pos"]["diag_fn"]["mon_fn"]}"]:::fail',
-                "    B_FN -->|Flags| B_FN_TP",
-                "    B_FN -->|Ignores| B_FN_FN",
+                f'    B_FN -->|"Flags (p &ge; {def_mon_t:.3f})"| B_FN_TP',
+                f'    B_FN -->|"Ignores (p &lt; {def_mon_t:.3f})"| B_FN_FN',
                 
                 f'    C_FP_TP["Safety Net Catches It TP - N={flow["dis_neg"]["diag_fp"]["mon_tp"]}"]:::success',
                 f'    C_FP_FN["Double Failure FN - N={flow["dis_neg"]["diag_fp"]["mon_fn"]}"]:::fail',
-                "    C_FP -->|Flags| C_FP_TP",
-                "    C_FP -->|Ignores| C_FP_FN",
+                f'    C_FP -->|"Flags (p &ge; {def_mon_t:.3f})"| C_FP_TP',
+                f'    C_FP -->|"Ignores (p &lt; {def_mon_t:.3f})"| C_FP_FN',
                 
                 # Styling
                 "    classDef success fill:#a6da95,stroke:#24273a,stroke-width:2px,color:#24273a;",
@@ -333,7 +333,8 @@ with tab3:
                     mermaid.initialize({{ 
                         startOnLoad: false, 
                         theme: 'dark',
-                        securityLevel: 'loose'
+                        securityLevel: 'loose',
+                        htmlLabels: true
                     }});
                     
                     const graphDefinition = `{mermaid_code}`;
