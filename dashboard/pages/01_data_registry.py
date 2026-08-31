@@ -93,11 +93,40 @@ components.html(html_code, height=600, scrolling=True)
 st.markdown("---")
 st.title("Dataset Split Statistics")
 
-# Create a tab for each dataset
+# Create tabs for dataset info and statistics
 datasets = sorted(stats.keys())
-tabs = st.tabs(datasets)
+tab_names = ["Info"] + [d.upper() for d in datasets]
+tabs = st.tabs(tab_names)
 
-for tab, dataset_name in zip(tabs, datasets):
+with tabs[0]:
+    st.header("Dataset Information & Literature Sources")
+    st.markdown("""
+    * **RSNA-IHD**: [Paper](https://pubs.rsna.org/doi/full/10.1148/ryai.2020190211), [Dataset](https://registry.opendata.aws/rsna-intracranial-hemorrhage-detection/)
+        * 27,861 CT scans with slice annotations
+        * Three institutions
+        * Labeled by 60 radiologists (test dataset), 1 radiologist (training data)
+        * Labels: Any, Epidural, Subdural, Intraparenchymal, Intraventricular, Subarachnoid
+    * **SinoCT**: [Paper](https://pubs.rsna.org/doi/abs/10.1148/ryai.2021200229), [Dataset](https://aimi.stanford.edu/datasets/sinoct)
+        * 9000 scans with scan annotations
+        * Labels: Normal / Abnormal
+        * Substantial overlap with RSNA-IHD
+    * **CQ500/BHX**: [Paper](https://arxiv.org/abs/1803.05854), [Dataset](https://www.kaggle.com/datasets/crawford/qureai-headct), [BHX Extension](https://physionet.org/content/bhx-brain-bounding-box/1.1/):
+        * 491 CT scans of 6 different scanners
+        * Labeled by 3 radiologists
+        * Scan-level annotations with slice-level bounding boxes through BHX extension
+        * Labels: Any, Epidural, Subdural, Intraparenchymal, Intraventricular, Subarachnoid
+        * Literature mostly uses CQ500 for external validation
+    * **PHE-SICH-CT-IDS**: [Paper](https://arxiv.org/abs/2308.10521), [Dataset](https://figshare.com/articles/dataset/PHE-SICH-CT-IDS/23957937?file=42152730)
+        * 120 CT scans of 1 scanner with segmentation
+        * Labeled by 3 Radiologists
+        * Label: ICH? (binary)
+    * **PhysioNet-CT-ICH**: [Paper](https://www.mdpi.com/2306-5729/5/1/14), [Dataset](https://physionet.org/content/ct-ich/1.3.1/)
+        * 82 CT scans of 1 scanner with segmentation
+        * Labeled by 2 radiologists
+        * Label: Intraventricular, Intraparenchymal, subarachnoid, epidural, subdural, fracture
+    """)
+
+for tab, dataset_name in zip(tabs[1:], datasets):
     with tab:
         st.header(dataset_name.upper())
         splits = stats[dataset_name]
