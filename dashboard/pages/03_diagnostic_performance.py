@@ -64,7 +64,7 @@ with tab1:
     st.markdown("### Continuous Metrics Comparison")
     
     # Build comparison dataframe
-    metric_keys = [("AUROC", "auroc"), ("AUPRC", "auprc"), ("Brier Score", "brier"), ("ECE", "ece"), ("AdaECE", "ada_ece")]
+    metric_keys = [("AUROC ↑", "auroc"), ("AUPRC ↑", "auprc"), ("Brier Score ↓", "brier"), ("ECE ↓", "ece"), ("AdaECE ↓", "ada_ece")]
     comp_data = []
     
     for name, key in metric_keys:
@@ -118,10 +118,10 @@ with tab1:
                 
                 st.caption(f"Applied Threshold Value: {slider_val:.4f}")
                 data_disc = [
-                    {"Metric": "F1 Score", "Value": f"{f1:.4f}"},
-                    {"Metric": "Sensitivity", "Value": f"{sens:.4f}"},
-                    {"Metric": "Specificity", "Value": f"{spec:.4f}"},
-                    {"Metric": "Precision", "Value": f"{ppv:.4f}"}
+                    {"Metric": "F1 Score ↑", "Value": f"{f1:.4f}"},
+                    {"Metric": "Sensitivity ↑", "Value": f"{sens:.4f}"},
+                    {"Metric": "Specificity ↑", "Value": f"{spec:.4f}"},
+                    {"Metric": "Precision ↑", "Value": f"{ppv:.4f}"}
                 ]
                 st.dataframe(pd.DataFrame(data_disc), use_container_width=True, hide_index=True)
                 st.markdown(f"**Confusion Matrix:** TP: `{tp}` | FP: `{fp}` | TN: `{tn}` | FN: `{fn}`")
@@ -131,7 +131,7 @@ with tab1:
                 st.caption(f"Applied Threshold Value: {thresh_data['threshold']:.4f}")
                 
                 data_disc = []
-                for name, key in [("F1 Score", "f1"), ("Sensitivity", "sensitivity"), ("Specificity", "specificity"), ("Precision", "ppv")]:
+                for name, key in [("F1 Score ↑", "f1"), ("Sensitivity ↑", "sensitivity"), ("Specificity ↑", "specificity"), ("Precision ↑", "ppv")]:
                     val = thresh_data[key]["value"]
                     ci_l = thresh_data[key]["ci_lower"]
                     ci_u = thresh_data[key]["ci_upper"]

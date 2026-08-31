@@ -74,7 +74,7 @@ with tab1:
     
     with col1:
         st.markdown(f"### Continuous Metrics Comparison ({selected_model})")
-        metric_keys = [("AUROC", "auroc"), ("AUPRC", "auprc"), ("Brier Score", "brier"), ("ECE", "ece"), ("AdaECE", "ada_ece")]
+        metric_keys = [("AUROC ↑", "auroc"), ("AUPRC ↑", "auprc"), ("Brier Score ↓", "brier"), ("ECE ↓", "ece"), ("AdaECE ↓", "ada_ece")]
         comp_data = []
         for name, key in metric_keys:
             row = {"Metric": name}
@@ -99,7 +99,7 @@ with tab1:
                 for frac in [0.05, 0.1, 0.2]:
                     recall = base_m["continuous"].get(f"recall_at_{frac}", 0.0)
                     frr = base_m["continuous"].get(f"frr_at_{frac}", 0.0)
-                    data_budget.append({"Budget": f"{int(frac*100)}%", "Recall": f"{recall*100:.2f}%", "FRR": f"{frr*100:.2f}%"})
+                    data_budget.append({"Budget": f"{int(frac*100)}%", "Recall ↑": f"{recall*100:.2f}%", "FRR ↓": f"{frr*100:.2f}%"})
                 st.dataframe(pd.DataFrame(data_budget), use_container_width=True, hide_index=True)
         
     with col2:
@@ -113,7 +113,7 @@ with tab1:
                 thresh_data = ds_metrics["discrete"][selected_thresh]
                 st.caption(f"Applied Threshold Value: {thresh_data['threshold']:.4f}")
                 data_disc = []
-                for name, key in [("F1 Score", "f1"), ("Sensitivity", "sensitivity"), ("Specificity", "specificity"), ("Precision", "ppv")]:
+                for name, key in [("F1 Score ↑", "f1"), ("Sensitivity ↑", "sensitivity"), ("Specificity ↑", "specificity"), ("Precision ↑", "ppv")]:
                     val = thresh_data[key]["value"]
                     ci_l = thresh_data[key]["ci_lower"]
                     ci_u = thresh_data[key]["ci_upper"]
