@@ -3,6 +3,7 @@ from sklearn.metrics import roc_auc_score
 import math
 
 METADATA = {
+    "type": "continuous",
     "category": "discrimination",
     "name": "auroc"
 }

@@ -3,6 +3,7 @@ from sklearn.metrics import average_precision_score
 import math
 
 METADATA = {
+    "type": "continuous",
     "category": "discrimination",
     "name": "auprc"
 }

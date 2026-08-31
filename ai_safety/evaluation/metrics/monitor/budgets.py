@@ -1,6 +1,7 @@
 import numpy as np
 
 METADATA = {
+    "type": "continuous",
     "category": "clinical_utility",
     "name": "budgets"
 }

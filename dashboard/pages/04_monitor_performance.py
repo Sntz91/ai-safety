@@ -70,59 +70,115 @@ st.subheader(f"Metrics for {selected_ds} ({selected_subtype}) - {selected_level.
 tab1, tab2, tab3, tab4 = st.tabs(["Metrics Overview", "Performance Curves", "Safety Net Flow", "Configuration"])
 
 with tab1:
-    col1, col2 = st.columns(2)
+    col_disc, col_cal = st.columns(2)
     
-    with col1:
-        st.markdown(f"### Continuous Metrics Comparison ({selected_model})")
-        metric_keys = [("AUROC ↑", "auroc"), ("AUPRC ↑", "auprc"), ("Brier Score ↓", "brier"), ("ECE ↓", "ece"), ("AdaECE ↓", "ada_ece")]
-        comp_data = []
-        for name, key in metric_keys:
+    with col_disc:
+        st.markdown(f"### Discrimination ({selected_model})")
+        disc_keys = [("AUROC ↑", "auroc"), ("AUPRC ↑", "auprc")]
+        comp_disc = []
+        for name, key in disc_keys:
             row = {"Metric": name}
             for run in selected_runs:
                 val_str = "N/A"
                 if run in runs_data:
                     m_blk = runs_data[run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
-                    if "continuous" in m_blk and key in m_blk["continuous"]:
-                        val = m_blk["continuous"][key]["value"]
-                        ci_l = m_blk["continuous"][key]["ci_lower"]
-                        ci_u = m_blk["continuous"][key]["ci_upper"]
+                    if "discrimination" in m_blk and key in m_blk["discrimination"]:
+                        val = m_blk["discrimination"][key]["value"]
+                        ci_l = m_blk["discrimination"][key]["ci_lower"]
+                        ci_u = m_blk["discrimination"][key]["ci_upper"]
                         val_str = f"{val:.4f} [{ci_l:.4f}, {ci_u:.4f}]"
                 row[run] = val_str
-            comp_data.append(row)
-        st.dataframe(pd.DataFrame(comp_data), use_container_width=True, hide_index=True)
+            comp_disc.append(row)
+        st.dataframe(pd.DataFrame(comp_disc), use_container_width=True, hide_index=True)
         
         if len(selected_runs) == 1:
             base_m = runs_data[base_run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
-            if "recall_at_0.05" in base_m.get("continuous", {}):
+            if "clinical_utility" in base_m and "recall_at_0.05" in base_m["clinical_utility"]:
                 st.markdown("**Clinical Utility (Budget vs Recall)**")
                 data_budget = []
                 for frac in [0.05, 0.1, 0.2]:
-                    recall = base_m["continuous"].get(f"recall_at_{frac}", 0.0)
-                    frr = base_m["continuous"].get(f"frr_at_{frac}", 0.0)
+                    recall = base_m["clinical_utility"].get(f"recall_at_{frac}", 0.0)
+                    frr = base_m["clinical_utility"].get(f"frr_at_{frac}", 0.0)
                     data_budget.append({"Budget": f"{int(frac*100)}%", "Recall ↑": f"{recall*100:.2f}%", "FRR ↓": f"{frr*100:.2f}%"})
                 st.dataframe(pd.DataFrame(data_budget), use_container_width=True, hide_index=True)
         
-    with col2:
-        st.markdown("### Operating Point (Discrete)")
-        if len(selected_runs) == 1:
-            run = selected_runs[0]
-            ds_metrics = runs_data[run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
-            if ds_metrics and "discrete" in ds_metrics:
-                threshold_names = list(ds_metrics["discrete"].keys())
-                selected_thresh = st.selectbox("Threshold Method", threshold_names, label_visibility="collapsed")
-                thresh_data = ds_metrics["discrete"][selected_thresh]
-                st.caption(f"Applied Threshold Value: {thresh_data['threshold']:.4f}")
-                data_disc = []
-                for name, key in [("F1 Score ↑", "f1"), ("Sensitivity ↑", "sensitivity"), ("Specificity ↑", "specificity"), ("Precision ↑", "ppv")]:
-                    val = thresh_data[key]["value"]
-                    ci_l = thresh_data[key]["ci_lower"]
-                    ci_u = thresh_data[key]["ci_upper"]
-                    data_disc.append({"Metric": name, "Value": f"{val:.4f}", "95% CI": f"[{ci_l:.4f}, {ci_u:.4f}]"})
-                st.dataframe(pd.DataFrame(data_disc), use_container_width=True, hide_index=True)
-                c = thresh_data["confusion"]
-                st.markdown(f"**Confusion Matrix:** TP: `{c['tp']}` | FP: `{c['fp']}` | TN: `{c['tn']}` | FN: `{c['fn']}`")
-        else:
-            st.info("Operating Point thresholds are shown for single-run view. Select 1 run to view discrete thresholds.")
+    with col_cal:
+        st.markdown("### Calibration")
+        cal_keys = [("Brier Score ↓", "brier"), ("ECE ↓", "ece"), ("AdaECE ↓", "ada_ece")]
+        comp_cal = []
+        for name, key in cal_keys:
+            row = {"Metric": name}
+            for run in selected_runs:
+                val_str = "N/A"
+                if run in runs_data:
+                    m_blk = runs_data[run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
+                    if "calibration" in m_blk and key in m_blk["calibration"]:
+                        val = m_blk["calibration"][key]["value"]
+                        ci_l = m_blk["calibration"][key]["ci_lower"]
+                        ci_u = m_blk["calibration"][key]["ci_upper"]
+                        val_str = f"{val:.4f} [{ci_l:.4f}, {ci_u:.4f}]"
+                row[run] = val_str
+            comp_cal.append(row)
+        st.dataframe(pd.DataFrame(comp_cal), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("### Operating Point (Discrete)")
+    
+    thresh_options = []
+    for run in selected_runs:
+        if run in runs_data:
+            m_blk = runs_data[run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
+            if "operating_point" in m_blk:
+                for k in m_blk["operating_point"].keys():
+                    if k not in thresh_options:
+                        thresh_options.append(k)
+                        
+    if not thresh_options:
+        thresh_options = ["LOCKED (85% Sens)"]
+        
+    selected_thresh = st.selectbox("Threshold Method", thresh_options, label_visibility="collapsed")
+    
+    metric_rows = [
+        ("Threshold", "threshold"),
+        ("F1 Score ↑", "f1"),
+        ("Sensitivity ↑", "sensitivity"),
+        ("Specificity ↑", "specificity"),
+        ("Precision ↑", "precision")
+    ]
+    comp_disc = []
+    conf_strings = {}
+    
+    for name, key in metric_rows:
+        row = {"Metric": name}
+        for run in selected_runs:
+            val_str = "N/A"
+            if run in runs_data:
+                m_blk = runs_data[run]["metrics"].get(selected_ds, {}).get(selected_subtype, {}).get(selected_level, {}).get(selected_model, {})
+                if "operating_point" in m_blk and selected_thresh in m_blk["operating_point"]:
+                    thresh_data = m_blk["operating_point"][selected_thresh]
+                    if key == "threshold":
+                        th_v = thresh_data.get("threshold")
+                        val_str = f"{th_v:.4f}" if th_v is not None else "N/A"
+                    elif key in thresh_data:
+                        val = thresh_data[key]["value"]
+                        ci_l = thresh_data[key]["ci_lower"]
+                        ci_u = thresh_data[key]["ci_upper"]
+                        if ci_l is not None and ci_u is not None:
+                            val_str = f"{val:.4f} [{ci_l:.4f}, {ci_u:.4f}]"
+                        else:
+                            val_str = f"{val:.4f}"
+                    if "confusion" in thresh_data:
+                        c = thresh_data["confusion"]
+                        conf_strings[run] = f"TP: `{c['tp']}` | FP: `{c['fp']}` | TN: `{c['tn']}` | FN: `{c['fn']}`"
+            row[run] = val_str
+        comp_disc.append(row)
+        
+    st.dataframe(pd.DataFrame(comp_disc), use_container_width=True, hide_index=True)
+    if len(selected_runs) == 1 and selected_runs[0] in conf_strings:
+        st.markdown(f"**Confusion Matrix:** {conf_strings[selected_runs[0]]}")
+    elif len(selected_runs) > 1:
+        for run, c_str in conf_strings.items():
+            st.markdown(f"**{run} Confusion:** {c_str}")
 
 with tab2:
     fig_cols = st.columns(2)
@@ -138,12 +194,12 @@ with tab2:
             if "roc" in c:
                 fpr = c["roc"]["fpr"]
                 tpr = c["roc"]["tpr"]
-                auroc = m["continuous"]["auroc"]["value"] if "continuous" in m and "auroc" in m["continuous"] else 0
+                auroc = m.get("discrimination", {}).get("auroc", {}).get("value", 0)
                 fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f'{run} ({selected_model}, AUC: {auroc:.3f})', line=dict(color=color, width=2)))
             if "pr" in c:
                 prec = c["pr"]["precision"]
                 rec = c["pr"]["recall"]
-                auprc = m["continuous"]["auprc"]["value"] if "continuous" in m and "auprc" in m["continuous"] else 0
+                auprc = m.get("discrimination", {}).get("auprc", {}).get("value", 0)
                 fig_pr.add_trace(go.Scatter(x=rec, y=prec, mode='lines', name=f'{run} ({selected_model}, AUC: {auprc:.3f})', line=dict(color=color, width=2)))
 
     fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash', color='gray'), name='Random', showlegend=False))

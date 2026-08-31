@@ -105,8 +105,9 @@ if diag_metrics_file.exists():
                 lvl = "slice_level" if "slice_level" in levels else list(levels.keys())[0]
                 
                 metrics = levels[lvl]
-                auroc = metrics["continuous"]["auroc"]["value"]
-                node_labels[ds] += f"<br/>Diag AUROC: {auroc:.3f}"
+                auroc = metrics.get("discrimination", {}).get("auroc", {}).get("value")
+                if auroc is not None:
+                    node_labels[ds] += f"<br/>Diag AUROC: {auroc:.3f}"
 
 mon_metrics_file = Path("experiments/outputs/monitor") / selected_monitor_run / "metrics.json"
 if mon_metrics_file.exists():
@@ -123,8 +124,9 @@ if mon_metrics_file.exists():
                 model_block = levels[lvl]
                 model = "monitor" if "monitor" in model_block else list(model_block.keys())[0]
                 metrics = model_block[model]
-                auroc = metrics["continuous"]["auroc"]["value"]
-                node_labels[ds] += f"<br/>Mon AUROC: {auroc:.3f}"
+                auroc = metrics.get("discrimination", {}).get("auroc", {}).get("value")
+                if auroc is not None:
+                    node_labels[ds] += f"<br/>Mon AUROC: {auroc:.3f}"
 
 
 def fmt_thresholds(vals):
