@@ -125,6 +125,19 @@ def main():
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg["optimizer"]["lr"], weight_decay=cfg["optimizer"]["weight_decay"])
 
+    scheduler = None
+    sched_cfg = cfg.get("scheduler")
+    if sched_cfg:
+        sched_name = (sched_cfg if isinstance(sched_cfg, str) else sched_cfg.get("name", "cosine")).lower()
+        if sched_name == "cosine":
+            lr_min = sched_cfg.get("lr_min") if isinstance(sched_cfg, dict) else None
+            eta_min = lr_min if lr_min is not None else cfg.get("optimizer", {}).get("lr_min", 0.0)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=cfg["training"]["epochs"],
+                eta_min=eta_min,
+            )
+
     # --- 3. Training Loop ---
     train_model(
         model=model,
@@ -132,6 +145,7 @@ def main():
         val_dataset=val_ds,
         criterion=criterion,
         optimizer=optimizer,
+        scheduler=scheduler,
         device=device,
         output_dir=args.output_dir,
         epochs=cfg["training"]["epochs"],
