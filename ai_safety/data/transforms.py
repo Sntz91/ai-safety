@@ -23,18 +23,17 @@ class Transform:
                 T.RandomResizedCrop(
                     (image_size, image_size),
                     scale=(0.9, 1.0),
-                    interpolation=T.InterpolationMode.BILINEAR,
+                    interpolation=T.InterpolationMode.BICUBIC,
                     antialias=True,
                 ),
                 T.RandomHorizontalFlip(p=0.5),
-                T.RandomRotation(degrees=15),
-                T.RandomAffine(degrees=0, translate=(0.05, 0.05),
-scale=(0.95, 1.05)),
+                T.RandomRotation(degrees=[-30, 30]),
+                T.RandomAffine(degrees=0, translate=(0.05, 0.05), scale=(0.95, 1.05)),
             ])
         else:
             self.spatial = T.Resize(
                 (image_size, image_size),
-                interpolation=T.InterpolationMode.BILINEAR,
+                interpolation=T.InterpolationMode.BICUBIC,
                 antialias=True,
             )
         self.normalize = T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)

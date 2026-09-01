@@ -1,5 +1,5 @@
 diagnostic:
-  run_dir: runs/diagnostic/3083
+  run_dir: runs/diagnostic/3149
 monitor:
   binary: true
   subtype: false
@@ -32,8 +32,8 @@ optimizer:
   lr: 5.0e-05
   lr_min: 1.0e-06
   weight_decay: 0.001
-scheduler:
-  name: cosine
 loss:
-  name: bce
+  name: focal
   use_pos_weights: false
+  params:
+    gamma: 2.0

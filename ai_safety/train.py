@@ -124,19 +124,12 @@ def main():
     criterion = Loss(pos_weight=pos_weight, **loss_kwargs) if use_pos_weights else Loss(**loss_kwargs)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg["optimizer"]["lr"], weight_decay=cfg["optimizer"]["weight_decay"])
-
-    scheduler = None
-    sched_cfg = cfg.get("scheduler")
-    if sched_cfg:
-        sched_name = (sched_cfg if isinstance(sched_cfg, str) else sched_cfg.get("name", "cosine")).lower()
-        if sched_name == "cosine":
-            lr_min = sched_cfg.get("lr_min") if isinstance(sched_cfg, dict) else None
-            eta_min = lr_min if lr_min is not None else cfg.get("optimizer", {}).get("lr_min", 0.0)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer,
-                T_max=cfg["training"]["epochs"],
-                eta_min=eta_min,
-            )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=5,
+        T_mult=2,
+        eta_min=cfg["optimizer"].get("lr_min", 1.0e-06),
+    )
 
     # --- 3. Training Loop ---
     train_model(
