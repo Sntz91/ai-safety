@@ -21,14 +21,10 @@ COLORS = {
 }
 
 st.set_page_config(page_title="Data Pipeline Architecture", layout="wide")
-st.title("Architecture Graph (Mermaid)")
+st.title("Architecture Graph")
 
 st.markdown("""
 This graph is generated **dynamically** by parsing the actual `config.yaml` of your runs.
-It displays how data flows through the Diagnostic and Monitoring phases, including where the `LOCKED` thresholds are mathematically calculated during validation.
-
-- **LOCKED (85% Sens)**: The model calculates its threshold on the validation set to strictly hit 85% Sensitivity. This is harmonized across both the Diagnostic and Monitor pipelines.
-- **OPTIMAL**: Computed directly on the test sets dynamically (cheating) to find the theoretical performance ceiling.
 """)
 
 # Find Monitor Runs
@@ -120,6 +116,8 @@ if mon_metrics_file.exists():
             if subtypes:
                 first_sub = subtypes[0]
                 levels = mon_metrics[ds][first_sub]
+                if "all" in levels:
+                    levels = levels["all"]
                 lvl = "slice_level" if "slice_level" in levels else list(levels.keys())[0]
                 model_block = levels[lvl]
                 model = "monitor" if "monitor" in model_block else list(model_block.keys())[0]

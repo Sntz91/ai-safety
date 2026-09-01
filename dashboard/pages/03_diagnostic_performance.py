@@ -56,15 +56,71 @@ levels = list(base_metrics[selected_ds][selected_subtype].keys()) if selected_su
 default_idx = levels.index("slice_level") if "slice_level" in levels else 0
 selected_level = st.sidebar.radio("Aggregation Level", levels, index=default_idx)
 
-st.subheader(f"Metrics for {selected_ds} ({selected_subtype}) - {selected_level.replace('_', ' ').title()}")
+def load_thresholds(run_id):
+    th_p = Path("runs/diagnostic") / run_id / "thresholds.yaml"
+    if th_p.exists():
+        with open(th_p, "r") as f:
+            return yaml.safe_load(f)
+    return {}
 
-tab1, tab2, tab3, tab4 = st.tabs(["Metrics Overview", "Performance Curves", "Probability Distribution", "Configuration"])
+
+def compute_failure_stats(df, subtype, level, d_thresh):
+    p_col = f"prob_{subtype}"
+    y_col = f"label_{subtype}"
+    if p_col not in df.columns or y_col not in df.columns:
+        return None
+    p = df[p_col].values
+    y = df[y_col].values
+    if level == "scan_level" and "series_id" in df.columns:
+        _, p, y = aggregate_to_scan_level(df["series_id"].values, p, y, k=3)
+
+    n_total = len(p)
+    y_pred = (p >= d_thresh).astype(int)
+    is_err = (y != y_pred)
+    n_err = int(is_err.sum())
+    n_silent_fn = int(((p <= 0.10) & (y == 1)).sum())
+    n_silent_fp = int(((p >= 0.80) & (y == 0)).sum())
+    n_silent = n_silent_fn + n_silent_fp
+    n_bound = max(0, n_err - n_silent)
+    return {
+        "total": n_total,
+        "errors": n_err,
+        "boundary": n_bound,
+        "silent": n_silent,
+        "silent_fn": n_silent_fn,
+        "silent_fp": n_silent_fp,
+    }
+
+
+base_thresh = load_thresholds(base_run)
+subtypes_list = [c for c in subtypes]
+subtype_idx = subtypes_list.index(selected_subtype) if selected_subtype in subtypes_list else 0
+lvl_key = "scan" if selected_level == "scan_level" else "slice"
+t_diag = base_thresh.get(lvl_key, [0.5])[subtype_idx] if lvl_key in base_thresh and subtype_idx < len(base_thresh[lvl_key]) else 0.5
+
+# Top KPI Summary Cards for selected dataset
+pred_csv_cur = Path(f"runs/diagnostic/{base_run}/predictions-{selected_ds}.csv")
+if pred_csv_cur.exists():
+    df_cur = pd.read_csv(pred_csv_cur)
+    cur_stats = compute_failure_stats(df_cur, selected_subtype, selected_level, t_diag)
+    if cur_stats:
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        unit = "Slices" if selected_level == "slice_level" else "Scans"
+        kpi1.metric("Total Workload", f"{cur_stats['total']:,} {unit}")
+        err_pct = cur_stats["errors"] / cur_stats["total"] * 100 if cur_stats["total"] > 0 else 0
+        kpi2.metric("Diagnostic Errors", f"{cur_stats['errors']:,} ({err_pct:.1f}%)")
+        bound_pct = cur_stats["boundary"] / max(1, cur_stats["errors"]) * 100
+        kpi3.metric("Boundary Errors", f"{cur_stats['boundary']:,} ({bound_pct:.1f}%)")
+        silent_pct = cur_stats["silent"] / max(1, cur_stats["errors"]) * 100
+        kpi4.metric("Silent Mistakes", f"{cur_stats['silent']:,} ({silent_pct:.1f}%)")
+
+tab1, tab2, tab3, tab4 = st.tabs(["Metrics Overview", "Performance Curves", "Failure Analysis & Domain Shift", "Configuration"])
 
 with tab1:
     col_disc, col_cal = st.columns(2)
     
     with col_disc:
-        st.markdown("### Discrimination")
+        st.markdown("#### Discrimination")
         disc_keys = [("AUROC ↑", "auroc"), ("AUPRC ↑", "auprc")]
         comp_disc = []
         for name, key in disc_keys:
@@ -83,7 +139,7 @@ with tab1:
         st.dataframe(pd.DataFrame(comp_disc), use_container_width=True, hide_index=True)
         
     with col_cal:
-        st.markdown("### Calibration")
+        st.markdown("#### Calibration")
         cal_keys = [("Brier Score ↓", "brier"), ("ECE ↓", "ece"), ("AdaECE ↓", "ada_ece")]
         comp_cal = []
         for name, key in cal_keys:
@@ -102,7 +158,7 @@ with tab1:
         st.dataframe(pd.DataFrame(comp_cal), use_container_width=True, hide_index=True)
         
     st.markdown("---")
-    st.markdown("### Operating Point (Discrete)")
+    st.markdown("#### Threshold Dependent")
     
     # Collect available threshold methods across selected runs
     thresh_options = []
@@ -260,35 +316,94 @@ with tab2:
 
 
 with tab3:
-    st.markdown("### Predicted Probability Distributions")
-    st.caption("Visualizes the raw probability outputs of the models for Positive (Disease) vs Negative (Healthy) cases.")
-    
+    # Dynamically compute failure stats across all available prediction datasets for the selected run
+    stats_per_ds = {}
+    for ds_name in datasets:
+        p_csv = Path(f"runs/diagnostic/{base_run}/predictions-{ds_name}.csv")
+        if p_csv.exists():
+            df_ds = pd.read_csv(p_csv)
+            ds_st = compute_failure_stats(df_ds, selected_subtype, selected_level, t_diag)
+            if ds_st:
+                stats_per_ds[ds_name] = ds_st
+
+    if stats_per_ds:
+        # 1. Summary Table across all evaluated datasets
+        table_rows = [
+            ("Total Workload", lambda s: f"{s['total']:,}"),
+            ("Diagnostic Errors", lambda s: f"{s['errors']:,} ({s['errors']/s['total']*100:.1f}%)"),
+            ("Boundary Errors", lambda s: f"{s['boundary']:,} ({s['boundary']/max(1, s['errors'])*100:.1f}% of errors)"),
+            ("Silent Mistakes (High-Confidence)", lambda s: f"{s['silent']:,} ({s['silent']/max(1, s['errors'])*100:.1f}% of errors)"),
+            ("  - Silent Missed Bleeds (p <= 0.10)", lambda s: f"{s['silent_fn']:,} ({s['silent_fn']/max(1, s['errors'])*100:.1f}%)"),
+            ("  - Silent False Alarms (p >= 0.80)", lambda s: f"{s['silent_fp']:,} ({s['silent_fp']/max(1, s['errors'])*100:.1f}%)"),
+        ]
+        table_data = []
+        for label, fmt in table_rows:
+            r = {"Metric": label}
+            for ds_k, st_v in stats_per_ds.items():
+                r[ds_k] = fmt(st_v)
+            table_data.append(r)
+        st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+
+        # 2. 100% Stacked Bar Chart
+        st.markdown("---")
+        ds_labels = list(stats_per_ds.keys())
+        bound_pcts = [stats_per_ds[d]["boundary"] / max(1, stats_per_ds[d]["errors"]) * 100 for d in ds_labels]
+        silent_fn_pcts = [stats_per_ds[d]["silent_fn"] / max(1, stats_per_ds[d]["errors"]) * 100 for d in ds_labels]
+        silent_fp_pcts = [stats_per_ds[d]["silent_fp"] / max(1, stats_per_ds[d]["errors"]) * 100 for d in ds_labels]
+
+        fig_comp = go.Figure()
+        fig_comp.add_trace(go.Bar(
+            name="Boundary Errors", y=ds_labels, x=bound_pcts, orientation="h",
+            marker_color="#eed49f", text=[f"{v:.1f}%" for v in bound_pcts], textposition="inside"
+        ))
+        fig_comp.add_trace(go.Bar(
+            name="Silent Missed Bleeds (p <= 0.10)", y=ds_labels, x=silent_fn_pcts, orientation="h",
+            marker_color="#ed8796", text=[f"{v:.1f}%" for v in silent_fn_pcts], textposition="inside"
+        ))
+        fig_comp.add_trace(go.Bar(
+            name="Silent False Alarms (p >= 0.80)", y=ds_labels, x=silent_fp_pcts, orientation="h",
+            marker_color="#8aadf4", text=[f"{v:.1f}%" for v in silent_fp_pcts], textposition="inside"
+        ))
+
+        fig_comp.update_layout(
+            title=f"Diagnostic Error Composition Across Datasets ({selected_level.replace('_', ' ').title()})",
+            xaxis_title="Percentage of Total Diagnostic Errors",
+            barmode="stack",
+            xaxis=dict(ticksuffix="%", range=[0, 100]),
+            template="plotly_dark",
+            height=240 + 50 * len(ds_labels),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_comp, use_container_width=True)
+
+    # 3. Probability Distribution Histogram for Selected Dataset
+    st.markdown("---")
+
     for run in selected_runs:
         pred_csv = Path(f"runs/diagnostic/{run}/predictions-{selected_ds}.csv")
         if pred_csv.exists():
             df = pd.read_csv(pred_csv)
-            
             prob_col = f"prob_{selected_subtype}"
             label_col = f"label_{selected_subtype}"
-            
+
             if prob_col in df.columns and label_col in df.columns:
                 orig_probs = df[prob_col].values
                 orig_labels = df[label_col].values
-                
+
                 if selected_level == "scan_level" and "series_id" in df.columns:
                     series_ids = df["series_id"].values
                     _, probs, labels = aggregate_to_scan_level(series_ids, orig_probs, orig_labels, k=3)
                 else:
                     probs = orig_probs
                     labels = orig_labels
-                
+
                 pos_probs = probs[labels == 1]
                 neg_probs = probs[labels == 0]
-                
+
                 fig = go.Figure()
                 fig.add_trace(go.Histogram(x=neg_probs, name="Healthy (Negatives)", opacity=0.75, marker_color="#a6da95", nbinsx=20))
                 fig.add_trace(go.Histogram(x=pos_probs, name="Disease (Positives)", opacity=0.75, marker_color="#ed8796", nbinsx=20))
-                
+
                 fig.update_layout(
                     title=f"Distribution for {run} ({selected_level.replace('_', ' ').title()})",
                     xaxis_title="Predicted Probability",
@@ -297,7 +412,6 @@ with tab3:
                     template="plotly_dark",
                     hovermode="x unified"
                 )
-                
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning(f"Could not find probability/label columns for {selected_subtype} in {run}.")
@@ -306,7 +420,6 @@ with tab3:
 
 
 with tab4:
-    st.markdown("### Experiment Configuration")
     run_configs = {}
     for run in selected_runs:
         cfg_path = Path(f"runs/diagnostic/{run}/config.yaml")
@@ -317,7 +430,6 @@ with tab4:
     if not run_configs:
         st.warning("No configuration files found for the selected runs in runs/diagnostic/.")
     elif len(selected_runs) > 1:
-        st.markdown("#### Configuration Comparison")
         only_diffs = st.checkbox("Only show differences", value=True, key="diag_only_diffs")
 
         def flatten_dict(d, parent_key=""):
@@ -361,7 +473,6 @@ with tab4:
         else:
             st.info("All selected runs have identical configurations.")
 
-        st.markdown("#### Raw Configuration Files")
         cols = st.columns(len(selected_runs))
         for col, run in zip(cols, selected_runs):
             with col:
@@ -373,20 +484,6 @@ with tab4:
     else:
         run = selected_runs[0]
         cfg = run_configs.get(run, {})
-        st.markdown(f"#### Configuration for Run `{run}`")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**Model & Loss**")
-            st.json({
-                "model": cfg.get("model", {}),
-                "loss": cfg.get("loss", {}),
-            })
-        with col2:
-            st.markdown("**Training & Optimizer**")
-            st.json({
-                "training": cfg.get("training", {}),
-                "optimizer": cfg.get("optimizer", {}),
-            })
         with st.expander("View Full Raw YAML Configuration", expanded=False):
             st.code(yaml.dump(cfg, sort_keys=False), language="yaml")
 

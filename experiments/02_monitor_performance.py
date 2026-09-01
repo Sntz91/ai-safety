@@ -7,8 +7,7 @@ from pathlib import Path
 import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from ai_safety.evaluation import metrics, discover_metrics, evaluate_monitor_risk
-from ai_safety.models.monitor.threshold_distance import compute_s_dist
+from ai_safety.evaluation import metrics, discover_metrics, evaluate_monitor_dataset
 
 
 def main():
@@ -29,6 +28,7 @@ def main():
     with open(diag_dir / "thresholds.yaml", "r") as f:
         diag_thresh = yaml.safe_load(f)
     diag_slice_thresholds = diag_thresh["slice"]
+    diag_scan_thresholds = diag_thresh.get("scan", [0.5] * len(diag_slice_thresholds))
 
     # Load monitor thresholds
     with open(run_dir / "thresholds.yaml", "r") as f:
@@ -37,12 +37,16 @@ def main():
     scan_thresholds = mon_thresh["scan"]
 
     metric_funcs = discover_metrics(metrics.shared, metrics.monitor)
-    print(f"Discovered metrics: {list(metric_funcs.keys())}")
+    print("Discovered metrics:", list(metric_funcs.keys()))
 
     metrics_out = {}
     curves_out = {}
 
-    for p_file in sorted(run_dir.glob("predictions-*.csv")):
+    pred_files = list(run_dir.glob("predictions-*.csv"))
+    if not pred_files:
+        raise FileNotFoundError(f"No prediction files found in {run_dir}")
+
+    for p_file in pred_files:
         df_mon = pd.read_csv(p_file)
 
         diag_file = diag_dir / p_file.name
@@ -57,41 +61,15 @@ def main():
         dataset_name = p_file.stem.replace("predictions-", "")
         print(f"Processing {dataset_name} ({len(df)} samples)...")
 
-        subtypes = [c.replace("label_", "") for c in df_mon.columns if c.startswith("label_")]
-        ds_metrics = {}
-        ds_curves = {}
-
-        for idx, subtype in enumerate(subtypes):
-            mon_risk = df[f"prob_{subtype}_mon"].values
-
-            diag_t_slice = diag_slice_thresholds[idx] if idx < len(diag_slice_thresholds) else 0.5
-            diag_t_scan = (
-                diag_thresh.get("scan", [0.5])[idx]
-                if "scan" in diag_thresh and idx < len(diag_thresh["scan"])
-                else 0.5
-            )
-            t_slice = slice_thresholds[idx] if idx < len(slice_thresholds) else 0.5
-            t_scan = scan_thresholds[idx] if idx < len(scan_thresholds) else 0.5
-
-            # Trained monitor risk
-            m_sl, m_slc, m_sc, m_scc = evaluate_monitor_risk(
-                df, subtype, mon_risk, diag_t_slice, diag_t_scan, t_slice, t_scan, args.bootstraps, metric_funcs
-            )
-
-            # Threshold-distance baseline: s_dist(diag_prob, tau_diag)
-            sdist_risk = compute_s_dist(df[f"prob_{subtype}_diag"].values, diag_t_slice)
-            t_sl, t_slc, t_sc, t_scc = evaluate_monitor_risk(
-                df, subtype, sdist_risk, diag_t_slice, diag_t_scan, t_slice, t_scan, args.bootstraps, metric_funcs
-            )
-
-            ds_metrics[subtype] = {
-                "slice_level": {"monitor": m_sl, "threshold_distance": t_sl},
-                "scan_level": {"monitor": m_sc, "threshold_distance": t_sc},
-            }
-            ds_curves[subtype] = {
-                "slice_level": {"monitor": m_slc, "threshold_distance": t_slc},
-                "scan_level": {"monitor": m_scc, "threshold_distance": t_scc},
-            }
+        ds_metrics, ds_curves = evaluate_monitor_dataset(
+            df=df,
+            diag_slice_thresholds=diag_slice_thresholds,
+            diag_scan_thresholds=diag_scan_thresholds,
+            mon_slice_thresholds=slice_thresholds,
+            mon_scan_thresholds=scan_thresholds,
+            bootstraps=args.bootstraps,
+            metric_funcs=metric_funcs,
+        )
 
         metrics_out[dataset_name] = ds_metrics
         curves_out[dataset_name] = ds_curves

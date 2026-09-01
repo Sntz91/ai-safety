@@ -5,7 +5,9 @@ base_dir = Path(__file__).parent
 
 pages = {
     "Overview": [
-        st.Page(str(base_dir / "pages/02_architecture.py"), title="Architecture")
+        st.Page(str(base_dir / "pages/02_architecture.py"), title="Architecture"),
+        st.Page(str(base_dir / "pages/06_failure_analysis.py"), title="Failure Analysis"),
+        st.Page(str(base_dir / "pages/05_inference_demo.py"), title="Inference Demo")
     ],
     "Data": [
         st.Page(str(base_dir / "pages/01_data_registry.py"), title="Data Registry")

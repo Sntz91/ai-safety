@@ -5,11 +5,7 @@ import streamlit.components.v1 as components
 from pathlib import Path
 
 st.set_page_config(page_title="Data Registry", layout="wide")
-st.title("Data Registry Overview")
-
-st.markdown("""
-This dynamically generates an interactive Venn diagram visualizing our exact dataset distributions and their slice overlaps.
-""")
+st.title("Overview of used Datasets")
 
 try:
     with open("splits/stats.json", "r") as f:
@@ -40,7 +36,7 @@ visual_overlap = min(rsna_sinoct_overlap, int(smaller_circle * 0.70)) if smaller
 
 lines = [
     "venn-beta",
-    "  title \"Dataset Overlaps (Slice Counts)\"",
+    "",
     f"  set rsna[\"RSNA\"]:{dataset_totals.get('RSNA', 0)}",
     f"    text rsna_t[\"({dataset_totals.get('RSNA', 0)//1000}k)\"]",
     f"  set sinoct[\"SINOCT\"]:{dataset_totals.get('SINOCT', 0)}",
@@ -79,8 +75,8 @@ html_code = f"""
             document.getElementById('graph-container').innerHTML = svg;
             const svgElement = document.getElementById('mermaid-svg');
             if(svgElement) {{
-                svgElement.style.maxWidth = '100%';
-                svgElement.style.height = 'auto';
+                svgElement.style.maxWidth = 'auto';
+                svgElement.style.height = '300';
             }}
             const blob = new Blob([svg], {{ type: 'image/svg+xml' }});
             const url = URL.createObjectURL(blob);
@@ -88,7 +84,7 @@ html_code = f"""
         }});
     </script>
 """
-components.html(html_code, height=600, scrolling=True)
+components.html(html_code, height=330, scrolling=False)
 
 st.markdown("---")
 st.title("Dataset Split Statistics")
