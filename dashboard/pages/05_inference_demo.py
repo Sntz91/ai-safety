@@ -20,7 +20,8 @@ from ai_safety.models.diagnostic import get_model as get_diag_model
 from ai_safety.models.monitor import get_model as get_mon_model
 from ai_safety.models.monitor.threshold_distance import compute_s_dist
 from ai_safety.data.transforms import Transform, apply_window
-from ai_safety.utils.aggregation import aggregate_to_scan_level, aggregate_dual_pooling_to_scan_level
+from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
+from ai_safety.models.monitor.aggregation import aggregate_dual_pooling_to_scan_level
 
 st.set_page_config(page_title="Demo", layout="wide")
 st.title("Monitoring / Diagnostic Demo")

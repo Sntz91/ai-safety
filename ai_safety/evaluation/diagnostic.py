@@ -1,5 +1,5 @@
 from ai_safety.evaluation.evaluator import evaluate_binary
-from ai_safety.utils.aggregation import aggregate_to_scan_level
+from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
 
 
 def evaluate_diagnostic_dataset(df, slice_thresholds, scan_thresholds, bootstraps=100, metric_funcs=None, k=3):

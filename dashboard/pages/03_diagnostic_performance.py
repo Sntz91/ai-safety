@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
-from ai_safety.utils.aggregation import aggregate_to_scan_level
+from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
 
 st.set_page_config(page_title="Diagnostic Performance", layout="wide")
 st.title("Diagnostic Model Performance")

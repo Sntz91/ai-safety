@@ -13,7 +13,9 @@ st.title("Monitor Model Performance")
 
 # Ensure src modules can be imported for aggregation
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
-from ai_safety.utils.aggregation import aggregate_to_scan_level, aggregate_dual_pooling_to_scan_level
+from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
+from ai_safety.models.monitor.aggregation import aggregate_dual_pooling_to_scan_level, aggregate_topk_saliency_to_scan_level
+from ai_safety.models.monitor.threshold_distance import compute_decision_distance
 
 # Scan output directory for monitor runs
 out_dir = Path("experiments/outputs/monitor")
@@ -123,7 +125,7 @@ if df_merged is not None and f"prob_{selected_subtype}_diag" in df_merged.column
 
 unit = "Slices" if selected_level == "slice_level" else "Scans"
 
-tab1, tab2, tab3, tab4 = st.tabs(["Clinical Safety & Subgroups", "Discrimination & Calibration", "Monitor Flow", "Configuration"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Clinical Safety & Subgroups", "Discrimination & Calibration", "Monitor Flow", "Aggregation Comparison", "Configuration"])
 
 # Helper to retrieve metric block across new/legacy schema
 def get_block(ds, subtype, cohort, level, model, kind="metrics"):
@@ -544,6 +546,107 @@ with tab3:
 
 
 with tab4:
+    from sklearn.metrics import roc_auc_score, average_precision_score, roc_curve
+
+    def compute_aggregation_strategies(df, subtype, diag_t_scan, k=3):
+        series_ids = df["series_id"].values
+        orig_diag_probs = df[f"prob_{subtype}_diag"].values
+        orig_diag_gts = df[f"label_{subtype}_diag"].values
+        risk_slice = df[f"prob_{subtype}_mon"].values
+
+        _, scan_diag_probs, scan_diag_gts = aggregate_to_scan_level(series_ids, orig_diag_probs, orig_diag_gts, k=k)
+        scan_diag_preds = (scan_diag_probs >= diag_t_scan).astype(int)
+        scan_true = (scan_diag_gts != scan_diag_preds).astype(int)
+
+        _, r_pure_top3 = aggregate_to_scan_level(series_ids, risk_slice, k=k)
+        r_sdist = compute_decision_distance(scan_diag_probs, diag_threshold=diag_t_scan)
+        _, r_top3_diag = aggregate_topk_saliency_to_scan_level(series_ids, orig_diag_probs, risk_slice, k=k)
+        r_hybrid = (r_top3_diag + r_sdist) / 2.0
+
+        strategies = {
+            "Pure Black-Box (Top-3 Mean)": {
+                "scores": r_pure_top3,
+                "input_req": "Image Pixels Only (0 Model Access)",
+            },
+            "Decision Boundary Baseline": {
+                "scores": r_sdist,
+                "input_req": "Model Probability & Threshold (|p - τ|)",
+            },
+            "Top-3 Diagnostic Slices Monitor": {
+                "scores": r_top3_diag,
+                "input_req": "Image Pixels + Diagnostic Saliency",
+            },
+            "Hybrid Safety Monitor (Top-3 + Decision)": {
+                "scores": r_hybrid,
+                "input_req": "Image Pixels + Diagnostic Output + τ",
+            },
+        }
+        return scan_diag_probs, scan_diag_gts, scan_diag_preds, scan_true, strategies
+
+    if df_merged is None:
+        st.warning(f"Prediction files missing for {selected_ds}. Cannot generate Aggregation Comparison.")
+    else:
+        subtypes_list = [c.replace("label_", "").replace("_diag", "") for c in df_merged.columns if c.startswith("label_") and c.endswith("_diag")]
+        subtype_idx = subtypes_list.index(selected_subtype) if selected_subtype in subtypes_list else 0
+        diag_thresh = load_thresholds(Path("runs/diagnostic") / diag_run_name)
+        t_scan = diag_thresh.get("scan", [0.5])[subtype_idx] if "scan" in diag_thresh and subtype_idx < len(diag_thresh["scan"]) else 0.5
+        scan_diag_probs, scan_diag_gts, scan_diag_preds, scan_true, strategies = compute_aggregation_strategies(
+            df_merged, selected_subtype, float(t_scan)
+        )
+
+        n_scans = len(scan_true)
+        n_errors = int(np.sum(scan_true))
+        n_fp = int(np.sum((scan_diag_gts == 0) & (scan_diag_preds == 1)))
+        n_fn = int(np.sum((scan_diag_gts == 1) & (scan_diag_preds == 0)))
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Scans", f"{n_scans:,}")
+        c2.metric("Diagnostic Errors", f"{n_errors:,} ({n_errors/n_scans:.1%})")
+        c3.metric("False Positives", f"{n_fp:,}")
+        c4.metric("False Negatives", f"{n_fn:,}")
+
+        st.markdown("---")
+
+        table_rows = []
+        for name, data in strategies.items():
+            scores = data["scores"]
+            auc = float(roc_auc_score(scan_true, scores))
+            ap = float(average_precision_score(scan_true, scores))
+
+            fpr, tpr, roc_thresh = roc_curve(scan_true, scores)
+
+            sens_80 = 0.0
+            for f, t in zip(fpr, tpr):
+                if f <= 0.20:
+                    sens_80 = max(sens_80, float(t))
+
+            cutoff_idx = np.argmin(np.abs(fpr - 0.20))
+            th_cut = float(roc_thresh[cutoff_idx]) if cutoff_idx < len(roc_thresh) else 0.5
+            flagged = scores >= th_cut
+
+            fp_mask = (scan_diag_gts == 0) & (scan_diag_preds == 1)
+            fn_mask = (scan_diag_gts == 1) & (scan_diag_preds == 0)
+            hc_mask = ((scan_diag_probs <= 0.10) & (scan_diag_gts == 1)) | ((scan_diag_probs >= 0.80) & (scan_diag_gts == 0))
+
+            fp_rec = float(np.sum(flagged[fp_mask]) / np.sum(fp_mask)) if np.sum(fp_mask) > 0 else 0.0
+            fn_rec = float(np.sum(flagged[fn_mask]) / np.sum(fn_mask)) if np.sum(fn_mask) > 0 else 0.0
+            hc_rec = float(np.sum(flagged[hc_mask]) / np.sum(hc_mask)) if np.sum(hc_mask) > 0 else 0.0
+
+            table_rows.append({
+                "Aggregation Strategy": name,
+                "Information Required": data["input_req"],
+                "AUROC": f"{auc:.3f}",
+                "AUPRC": f"{ap:.3f}",
+                "Overall Error Recall (@ 80% Spec)": f"{sens_80:.1%}",
+                "FP Detection Rate": f"{fp_rec:.1%}",
+                "FN Detection Rate": f"{fn_rec:.1%}",
+                "High-Confidence Error Recall": f"{hc_rec:.1%}",
+            })
+
+        st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+
+
+with tab5:
     cfg_path = Path(f"runs/monitor/{selected_run}/config.yaml")
     if cfg_path.exists():
         cfg = load_config(cfg_path)

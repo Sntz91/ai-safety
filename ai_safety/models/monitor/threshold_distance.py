@@ -26,3 +26,20 @@ def compute_s_dist(probs: np.ndarray, thresholds) -> np.ndarray:
     term2 = (1.0 - probs) / (1.0 - t_vals)
     
     return np.minimum(term1, term2)
+
+
+def compute_decision_distance(scan_diag_probs, diag_threshold=0.5):
+    """
+    Compute normalized decision boundary uncertainty (s_dist) at the scan level.
+    Score is 1.0 at the decision threshold tau, and scales to 0.0 at maximum distance.
+    """
+    scan_diag_probs = np.asarray(scan_diag_probs)
+    max_dist_below = max(diag_threshold, 1e-4)
+    max_dist_above = max(1.0 - diag_threshold, 1e-4)
+
+    s_dist_norm = np.where(
+        scan_diag_probs < diag_threshold,
+        1.0 - (diag_threshold - scan_diag_probs) / max_dist_below,
+        1.0 - (scan_diag_probs - diag_threshold) / max_dist_above
+    )
+    return np.clip(s_dist_norm, 0.0, 1.0)

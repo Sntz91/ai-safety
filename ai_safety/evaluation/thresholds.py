@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.metrics import roc_curve, precision_recall_curve
-from ai_safety.utils.aggregation import aggregate_to_scan_level
+from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
 
 
 def _threshold_for_sensitivity(y_true, y_prob, target_sens=0.85):

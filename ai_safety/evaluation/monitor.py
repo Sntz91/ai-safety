@@ -2,7 +2,8 @@ import pandas as pd
 from ai_safety.evaluation.evaluator import evaluate_binary
 from ai_safety.evaluation.metrics.monitor.budgets import evaluate as evaluate_budgets, evaluate_curve as evaluate_budgets_curve
 from ai_safety.models.monitor.threshold_distance import compute_s_dist
-from ai_safety.utils.aggregation import aggregate_to_scan_level, aggregate_dual_pooling_to_scan_level
+from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
+from ai_safety.models.monitor.aggregation import aggregate_dual_pooling_to_scan_level
 
 
 def evaluate_monitor_risk(
