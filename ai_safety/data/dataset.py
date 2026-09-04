@@ -9,6 +9,20 @@ from torch.utils.data import Dataset, ConcatDataset
 from ai_safety.data import DATASET_REGISTRY
 from ai_safety.utils.io import Predictions
 
+
+def _compute_pos_weights_from_labels(labels, cap=None):
+    """Compute the positive class weight vector for BCE / Focal loss from a 2D label matrix."""
+    labels = np.asarray(labels, dtype=np.float32)
+    if labels.ndim == 1:
+        labels = labels[:, None]
+    n = labels.shape[0]
+    pos_counts = labels.sum(axis=0)
+    neg_counts = n - pos_counts
+    pos_weights = neg_counts / np.maximum(pos_counts, 1.0)
+    if cap is not None:
+        pos_weights = np.minimum(pos_weights, cap)
+    return torch.tensor(pos_weights, dtype=torch.float32)
+
 class BaseShardedDataset(Dataset):
     """ Base class to handle tar- and corresponding parquet files. """
     def __init__(self, tar_root, split_path=None, binary=False):
@@ -78,13 +92,7 @@ class BaseShardedDataset(Dataset):
     def compute_pos_weights(self, cap=None):
         """Calculates positive class weight vector for BCE / Focal loss."""
         labels = np.array([self.get_labels(r) for r in self.records], dtype=np.float32)
-        n = labels.shape[0]
-        pos_counts = labels.sum(axis=0)
-        neg_counts = n - pos_counts
-        pos_weights = neg_counts / np.maximum(pos_counts, 1.0)
-        if cap is not None:
-            pos_weights = np.minimum(pos_weights, cap)
-        return torch.tensor(pos_weights, dtype=torch.float32)
+        return _compute_pos_weights_from_labels(labels, cap)
 
     def compute_sample_weights(self, cap=10.0):
         """Calculates balanced sample weights for WeightedRandomSampler."""
@@ -183,15 +191,44 @@ class MonitorDataset(ConcatDataset):
 
     def compute_pos_weights(self, cap=None):
         labels = self.get_labels()
-        if labels.ndim == 1:
-            labels = labels[:, None]
-        n = labels.shape[0]
-        pos_counts = labels.sum(axis=0)
-        neg_counts = n - pos_counts
-        pos_weights = neg_counts / np.maximum(pos_counts, 1.0)
-        if cap is not None:
-            pos_weights = np.minimum(pos_weights, cap)
-        return torch.tensor(pos_weights, dtype=torch.float32)
+        return _compute_pos_weights_from_labels(labels, cap)
+
+
+def build_monitor_dataset(dataset_cfg, diagnostic_dir, thresholds, transform, binary, subtype, return_sopuid=False):
+    """ Wrapper for >1 monitor dataset. """
+    if not isinstance(dataset_cfg, list):
+        dataset_cfg = [dataset_cfg]
+    datasets = []
+    for item in dataset_cfg:
+        pred_path = Path(diagnostic_dir) / f"predictions-{item['name']}.csv"
+        ds = MonitorDataset(
+            predictions_path=pred_path,
+            thresholds=thresholds,
+            binary=binary,
+            subtype=subtype,
+            transform=transform,
+        )
+        ds.return_sopuid = return_sopuid
+        datasets.append(ds)
+    return datasets[0] if len(datasets) == 1 else ConcatDataset(datasets)
+
+
+def build_diagnostic_dataset(dataset_cfg, transform, binary, return_sopuid=False):
+    """ Wrapper for >1 diagnostic dataset. """
+    if not isinstance(dataset_cfg, list):
+        dataset_cfg = [dataset_cfg]
+    datasets = []
+    for item in dataset_cfg:
+        ds = CTSliceDataset(
+            tar_root=DATASET_REGISTRY[item["dataset"]],
+            split_path=item["split"],
+            binary=binary,
+            transform=transform,
+            return_sopuid=return_sopuid,
+        )
+        ds.dataset_name = item["dataset"]
+        datasets.append(ds)
+    return datasets[0] if len(datasets) == 1 else ConcatDataset(datasets)
 
 
        
@@ -214,6 +251,3 @@ if __name__ == '__main__':
         print(label)
         plt.imshow(img)
         plt.show()
-
-
-
