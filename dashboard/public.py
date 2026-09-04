@@ -1,5 +1,10 @@
-import streamlit as st
+import sys
 from pathlib import Path
+
+# Add repo root to sys.path so `ai_safety` / `dashboard` packages import under Streamlit.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import streamlit as st
 
 base_dir = Path(__file__).parent
 
