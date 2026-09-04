@@ -5,17 +5,18 @@ import pandas as pd
 from pathlib import Path
 import yaml
 import streamlit.components.v1 as components
-import sys
 import numpy as np
+
+from ai_safety.constants import HIGH_CONF_THRESHOLD_LOW, HIGH_CONF_THRESHOLD_HIGH
+from ai_safety.utils.helpers import load_thresholds_from_run, resolve_threshold, extract_subtypes
+
+from dashboard.tab_helpers.monitor_flow import compute_flow_data, render_mermaid_html
+from dashboard.tab_helpers.aggregation import compute_aggregation_strategies
 
 st.set_page_config(page_title="Monitor Model Performance", layout="wide")
 st.title("Monitor Model Performance")
 
-# Ensure src modules can be imported for aggregation
-sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
-from ai_safety.models.monitor.aggregation import aggregate_dual_pooling_to_scan_level, aggregate_topk_saliency_to_scan_level
-from ai_safety.models.monitor.threshold_distance import compute_decision_distance
 
 # Scan output directory for monitor runs
 out_dir = Path("experiments/outputs/monitor")
@@ -55,10 +56,6 @@ selected_level = st.sidebar.radio(
     format_func=lambda x: x.replace("_", " ").title()
 )
 
-def load_config(path):
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
-
 @st.cache_data
 def load_and_merge_data(mon_run, diag_run, dataset):
     mon_path = Path("runs/monitor") / mon_run / f"predictions-{dataset}.csv"
@@ -69,19 +66,12 @@ def load_and_merge_data(mon_run, diag_run, dataset):
     df_diag = pd.read_csv(diag_path)
     return df_mon.merge(df_diag, on=["sop_uid", "series_id", "dataset"], suffixes=("_mon", "_diag"))
 
-@st.cache_data
-def load_thresholds(run_dir):
-    th_path = Path(run_dir) / "thresholds.yaml"
-    if th_path.exists():
-        with open(th_path, "r") as f:
-            return yaml.safe_load(f)
-    return {}
-
 # KPI Summary Counts
 mon_cfg_path = Path("runs/monitor") / selected_run / "config.yaml"
 diag_run_name = ""
 if mon_cfg_path.exists():
-    mon_cfg = load_config(mon_cfg_path)
+    with open(mon_cfg_path, "r") as f:
+        mon_cfg = yaml.safe_load(f)
     diag_run_name = Path(mon_cfg.get("diagnostic", {}).get("run_dir", "")).name
 
 df_merged = load_and_merge_data(selected_run, diag_run_name, selected_ds) if diag_run_name else None
@@ -94,11 +84,11 @@ hc_fp_count = 0
 hc_fn_count = 0
 
 if df_merged is not None and f"prob_{selected_subtype}_diag" in df_merged.columns:
-    diag_thresh = load_thresholds(Path("runs/diagnostic") / diag_run_name)
-    subtypes_list = [c.replace("label_", "").replace("_diag", "") for c in df_merged.columns if c.startswith("label_") and c.endswith("_diag")]
+    diag_thresh = load_thresholds_from_run(Path("runs/diagnostic") / diag_run_name)
+    subtypes_list = extract_subtypes(df_merged.columns, suffix="_diag")
     subtype_idx = subtypes_list.index(selected_subtype) if selected_subtype in subtypes_list else 0
-    t_diag_slice = diag_thresh.get("slice", [0.5])[subtype_idx] if "slice" in diag_thresh and subtype_idx < len(diag_thresh["slice"]) else 0.5
-    t_diag_scan = diag_thresh.get("scan", [0.5])[subtype_idx] if "scan" in diag_thresh and subtype_idx < len(diag_thresh["scan"]) else 0.5
+    t_diag_slice = resolve_threshold(diag_thresh, "slice", subtype_idx)
+    t_diag_scan = resolve_threshold(diag_thresh, "scan", subtype_idx)
 
     p_d = df_merged[f"prob_{selected_subtype}_diag"].values
     y_d = df_merged[f"label_{selected_subtype}_diag"].values
@@ -108,8 +98,8 @@ if df_merged is not None and f"prob_{selected_subtype}_diag" in df_merged.column
         total_errors = int((y_d != (p_d >= t_diag_slice)).sum())
         is_fn = (y_d == 1) & (p_d < t_diag_slice)
         is_fp = (y_d == 0) & (p_d >= t_diag_slice)
-        hc_fp_count = int((is_fp & (p_d >= 0.80)).sum())
-        hc_fn_count = int((is_fn & (p_d <= 0.10)).sum())
+        hc_fp_count = int((is_fp & (p_d >= HIGH_CONF_THRESHOLD_HIGH)).sum())
+        hc_fn_count = int((is_fn & (p_d <= HIGH_CONF_THRESHOLD_LOW)).sum())
     else:
         series_ids = df_merged["series_id"].values
         _, sc_probs, sc_gts = aggregate_to_scan_level(series_ids, p_d, y_d, k=3)
@@ -117,8 +107,8 @@ if df_merged is not None and f"prob_{selected_subtype}_diag" in df_merged.column
         total_errors = int((sc_gts != (sc_probs >= t_diag_scan)).sum())
         is_fn = (sc_gts == 1) & (sc_probs < t_diag_scan)
         is_fp = (sc_gts == 0) & (sc_probs >= t_diag_scan)
-        hc_fp_count = int((is_fp & (sc_probs >= 0.80)).sum())
-        hc_fn_count = int((is_fn & (sc_probs <= 0.10)).sum())
+        hc_fp_count = int((is_fp & (sc_probs >= HIGH_CONF_THRESHOLD_HIGH)).sum())
+        hc_fn_count = int((is_fn & (sc_probs <= HIGH_CONF_THRESHOLD_LOW)).sum())
 
     silent_mistakes = hc_fp_count + hc_fn_count
     boundary_errors = max(0, total_errors - silent_mistakes)
@@ -332,145 +322,26 @@ with tab2:
         c_s = sdist_thresh_data["confusion"]
         st.markdown(f"**Visual Monitor Confusion:** TP: `{c_m['tp']}` | FP: `{c_m['fp']}` | TN: `{c_m['tn']}` | FN: `{c_m['fn']}`")
         st.markdown(f"**Baseline s_dist Confusion:** TP: `{c_s['tp']}` | FP: `{c_s['fp']}` | TN: `{c_s['tn']}` | FN: `{c_s['fn']}`")
-def compute_flow_data(df, subtype, level, d_thresh, m_thresh):
-    if level == "slice_level":
-        diag_gt = df[f"label_{subtype}_diag"].values
-        diag_prob = df[f"prob_{subtype}_diag"].values
-        mon_prob = df[f"prob_{subtype}_mon"].values
-    else:
-        series_ids = df["series_id"].values
-        orig_diag_gts = df[f"label_{subtype}_diag"].values
-        orig_diag_probs = df[f"prob_{subtype}_diag"].values
-
-        _, diag_prob, diag_gt = aggregate_to_scan_level(series_ids, orig_diag_probs, orig_diag_gts, k=3)
-        _, mon_prob = aggregate_dual_pooling_to_scan_level(
-            series_ids, diag_probs=orig_diag_probs, mon_probs=df[f"prob_{subtype}_mon"].values, diag_threshold=d_thresh, k=3
-        )
-
-    diag_pred = (diag_prob >= d_thresh).astype(int)
-    mon_pred = (mon_prob >= m_thresh).astype(int)
-
-    res = {
-        "total": len(diag_gt),
-        "dis_pos": {"total": 0, "diag_tp": {"total": 0, "mon_fp": 0, "mon_tn": 0}, "diag_fn": {"total": 0, "mon_tp": 0, "mon_fn": 0}},
-        "dis_neg": {"total": 0, "diag_tn": {"total": 0, "mon_fp": 0, "mon_tn": 0}, "diag_fp": {"total": 0, "mon_tp": 0, "mon_fn": 0}},
-    }
-
-    for i in range(len(diag_gt)):
-        d_gt = diag_gt[i]
-        d_pd = diag_pred[i]
-        m_pd = mon_pred[i]
-
-        if d_gt == 1:
-            res["dis_pos"]["total"] += 1
-            if d_pd == 1:
-                res["dis_pos"]["diag_tp"]["total"] += 1
-                if m_pd == 1:
-                    res["dis_pos"]["diag_tp"]["mon_fp"] += 1
-                else:
-                    res["dis_pos"]["diag_tp"]["mon_tn"] += 1
-            else:
-                res["dis_pos"]["diag_fn"]["total"] += 1
-                if m_pd == 1:
-                    res["dis_pos"]["diag_fn"]["mon_tp"] += 1
-                else:
-                    res["dis_pos"]["diag_fn"]["mon_fn"] += 1
-        else:
-            res["dis_neg"]["total"] += 1
-            if d_pd == 0:
-                res["dis_neg"]["diag_tn"]["total"] += 1
-                if m_pd == 1:
-                    res["dis_neg"]["diag_tn"]["mon_fp"] += 1
-                else:
-                    res["dis_neg"]["diag_tn"]["mon_tn"] += 1
-            else:
-                res["dis_neg"]["diag_fp"]["total"] += 1
-                if m_pd == 1:
-                    res["dis_neg"]["diag_fp"]["mon_tp"] += 1
-                else:
-                    res["dis_neg"]["diag_fp"]["mon_fn"] += 1
-
-    return res
-
 
 with tab3:
     if df_merged is None:
         st.warning(f"Prediction files missing for {selected_ds}. Cannot generate Monitor Flow.")
     else:
-        diag_thresh = load_thresholds(Path("runs/diagnostic") / diag_run_name)
-        mon_thresh = load_thresholds(Path("runs/monitor") / selected_run)
+        diag_thresh = load_thresholds_from_run(Path("runs/diagnostic") / diag_run_name)
+        mon_thresh = load_thresholds_from_run(Path("runs/monitor") / selected_run)
 
-        subtypes_list = []
-        for col in df_merged.columns:
-            if col.startswith("label_") and col.endswith("_diag"):
-                subtypes_list.append(col.replace("label_", "").replace("_diag", ""))
-
+        subtypes_list = extract_subtypes(df_merged.columns, suffix="_diag")
         subtype_idx = subtypes_list.index(selected_subtype) if selected_subtype in subtypes_list else 0
         level_key = "scan" if selected_level == "scan_level" else "slice"
 
-        def_diag_t = diag_thresh.get(level_key, [0.5])[subtype_idx] if level_key in diag_thresh and subtype_idx < len(diag_thresh[level_key]) else 0.5
-        def_mon_t = mon_thresh.get(level_key, [0.5])[subtype_idx] if level_key in mon_thresh and subtype_idx < len(mon_thresh[level_key]) else 0.5
+        def_diag_t = resolve_threshold(diag_thresh, level_key, subtype_idx)
+        def_mon_t = resolve_threshold(mon_thresh, level_key, subtype_idx)
 
         flow = compute_flow_data(df_merged, selected_subtype, selected_level, float(def_diag_t), float(def_mon_t))
 
         total_scans = flow["total"]
         pos_total = flow["dis_pos"]["total"]
         neg_total = flow["dis_neg"]["total"]
-
-
-        def render_mermaid_html(mermaid_code: str, container_id: str, download_filename: str) -> str:
-            svg_id = f"mermaid-svg-{container_id}"
-            return f"""
-                <div style="text-align: right; margin-bottom: 8px;">
-                    <a id="download-{container_id}" href="#" download="{download_filename}" style="color: #cad3f5; text-decoration: none; font-family: sans-serif; background-color: #363a4f; padding: 6px 12px; border-radius: 6px; font-size: 13px;">
-                        Download SVG
-                    </a>
-                </div>
-                <div id="{container_id}" style="display: flex; justify-content: center; width: 100%;">
-                </div>
-                
-                <script type="module">
-                    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-                    mermaid.initialize({{ 
-                        startOnLoad: false, 
-                        theme: 'dark',
-                        securityLevel: 'loose',
-                        htmlLabels: true
-                    }});
-                    
-                    const graphDefinition = `{mermaid_code}`;
-                    
-                    const render = () => {{
-                        mermaid.render('{svg_id}', graphDefinition).then((result) => {{
-                            let svg = result.svg.replace(/<br>/g, '<br/>');
-                            const container = document.getElementById('{container_id}');
-                            if (container) {{
-                                container.innerHTML = svg;
-                            }}
-                            const svgElement = document.getElementById('{svg_id}');
-                            if (svgElement) {{
-                                svgElement.style.maxWidth = '100%';
-                                svgElement.style.height = 'auto';
-                            }}
-                            const blob = new Blob([svg], {{ type: 'image/svg+xml' }});
-                            const link = document.getElementById('download-{container_id}');
-                            if (link) {{
-                                link.href = URL.createObjectURL(blob);
-                            }}
-                        }}).catch((err) => {{
-                            console.error(err);
-                        }});
-                    }};
-
-                    const observer = new IntersectionObserver((entries) => {{
-                        if (entries[0].isIntersecting) {{
-                            render();
-                            observer.disconnect();
-                        }}
-                    }});
-                    observer.observe(document.body);
-                </script>
-            """
 
         # 1. Disease Positive Cohort Flow
         tp_tot = flow["dis_pos"]["diag_tp"]["total"]
@@ -548,48 +419,13 @@ with tab3:
 with tab4:
     from sklearn.metrics import roc_auc_score, average_precision_score, roc_curve
 
-    def compute_aggregation_strategies(df, subtype, diag_t_scan, k=3):
-        series_ids = df["series_id"].values
-        orig_diag_probs = df[f"prob_{subtype}_diag"].values
-        orig_diag_gts = df[f"label_{subtype}_diag"].values
-        risk_slice = df[f"prob_{subtype}_mon"].values
-
-        _, scan_diag_probs, scan_diag_gts = aggregate_to_scan_level(series_ids, orig_diag_probs, orig_diag_gts, k=k)
-        scan_diag_preds = (scan_diag_probs >= diag_t_scan).astype(int)
-        scan_true = (scan_diag_gts != scan_diag_preds).astype(int)
-
-        _, r_pure_top3 = aggregate_to_scan_level(series_ids, risk_slice, k=k)
-        r_sdist = compute_decision_distance(scan_diag_probs, diag_threshold=diag_t_scan)
-        _, r_top3_diag = aggregate_topk_saliency_to_scan_level(series_ids, orig_diag_probs, risk_slice, k=k)
-        r_hybrid = (r_top3_diag + r_sdist) / 2.0
-
-        strategies = {
-            "Pure Black-Box (Top-3 Mean)": {
-                "scores": r_pure_top3,
-                "input_req": "Image Pixels Only (0 Model Access)",
-            },
-            "Decision Boundary Baseline": {
-                "scores": r_sdist,
-                "input_req": "Model Probability & Threshold (|p - τ|)",
-            },
-            "Top-3 Diagnostic Slices Monitor": {
-                "scores": r_top3_diag,
-                "input_req": "Image Pixels + Diagnostic Saliency",
-            },
-            "Hybrid Safety Monitor (Top-3 + Decision)": {
-                "scores": r_hybrid,
-                "input_req": "Image Pixels + Diagnostic Output + τ",
-            },
-        }
-        return scan_diag_probs, scan_diag_gts, scan_diag_preds, scan_true, strategies
-
     if df_merged is None:
         st.warning(f"Prediction files missing for {selected_ds}. Cannot generate Aggregation Comparison.")
     else:
-        subtypes_list = [c.replace("label_", "").replace("_diag", "") for c in df_merged.columns if c.startswith("label_") and c.endswith("_diag")]
+        subtypes_list = extract_subtypes(df_merged.columns, suffix="_diag")
         subtype_idx = subtypes_list.index(selected_subtype) if selected_subtype in subtypes_list else 0
-        diag_thresh = load_thresholds(Path("runs/diagnostic") / diag_run_name)
-        t_scan = diag_thresh.get("scan", [0.5])[subtype_idx] if "scan" in diag_thresh and subtype_idx < len(diag_thresh["scan"]) else 0.5
+        diag_thresh = load_thresholds_from_run(Path("runs/diagnostic") / diag_run_name)
+        t_scan = resolve_threshold(diag_thresh, "scan", subtype_idx)
         scan_diag_probs, scan_diag_gts, scan_diag_preds, scan_true, strategies = compute_aggregation_strategies(
             df_merged, selected_subtype, float(t_scan)
         )
@@ -626,7 +462,7 @@ with tab4:
 
             fp_mask = (scan_diag_gts == 0) & (scan_diag_preds == 1)
             fn_mask = (scan_diag_gts == 1) & (scan_diag_preds == 0)
-            hc_mask = ((scan_diag_probs <= 0.10) & (scan_diag_gts == 1)) | ((scan_diag_probs >= 0.80) & (scan_diag_gts == 0))
+            hc_mask = ((scan_diag_probs <= HIGH_CONF_THRESHOLD_LOW) & (scan_diag_gts == 1)) | ((scan_diag_probs >= HIGH_CONF_THRESHOLD_HIGH) & (scan_diag_gts == 0))
 
             fp_rec = float(np.sum(flagged[fp_mask]) / np.sum(fp_mask)) if np.sum(fp_mask) > 0 else 0.0
             fn_rec = float(np.sum(flagged[fn_mask]) / np.sum(fn_mask)) if np.sum(fn_mask) > 0 else 0.0
@@ -649,7 +485,8 @@ with tab4:
 with tab5:
     cfg_path = Path(f"runs/monitor/{selected_run}/config.yaml")
     if cfg_path.exists():
-        cfg = load_config(cfg_path)
+        with open(cfg_path, "r") as f:
+            cfg = yaml.safe_load(f)
         st.code(yaml.dump(cfg, sort_keys=False), language="yaml")
     else:
         st.warning(f"No configuration file found for run {selected_run}.")

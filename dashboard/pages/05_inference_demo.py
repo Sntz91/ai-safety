@@ -1,8 +1,4 @@
 import os
-import gc
-import sys
-import yaml
-import ctypes
 import torch
 import pydicom
 import numpy as np
@@ -11,25 +7,25 @@ from PIL import Image
 from pathlib import Path
 import streamlit as st
 import torchvision.transforms.v2 as T_v2
-from pytorch_grad_cam import GradCAM
-from pytorch_grad_cam.utils.image import show_cam_on_image
-from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
-sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
-from ai_safety.models.diagnostic import get_model as get_diag_model
-from ai_safety.models.monitor import get_model as get_mon_model
 from ai_safety.models.monitor.threshold_distance import compute_s_dist
 from ai_safety.data.transforms import Transform, apply_window
 from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
 from ai_safety.models.monitor.aggregation import aggregate_dual_pooling_to_scan_level
+from ai_safety.utils.helpers import load_thresholds_from_run, resolve_threshold
+from dashboard.utils import (
+    force_garbage_collect,
+    load_models,
+    compute_gradcam_overlay,
+    require_runs_dir,
+    load_run_configs,
+)
 
 st.set_page_config(page_title="Demo", layout="wide")
 st.title("Monitoring / Diagnostic Demo")
 
 MON_DIR = Path("runs/monitor")
-if not MON_DIR.exists() or not list(MON_DIR.iterdir()):
-    st.error("No monitor runs found in runs/monitor/.")
-    st.stop()
+require_runs_dir(MON_DIR, "No monitor runs found in runs/monitor/.")
 
 monitor_runs = sorted([d.name for d in MON_DIR.iterdir() if d.is_dir()], reverse=True)
 
@@ -38,44 +34,17 @@ selected_mon_run = st.sidebar.selectbox("Select Monitor Run", monitor_runs)
 
 # Load monitor config to resolve diagnostic run
 mon_run_path = MON_DIR / selected_mon_run
-mon_cfg_path = mon_run_path / "config.yaml"
-if not mon_cfg_path.exists():
-    st.error(f"Config not found for monitor run {selected_mon_run}.")
-    st.stop()
-
-with open(mon_cfg_path, "r") as f:
-    mon_cfg = yaml.safe_load(f)
-
-diag_run_dir = mon_cfg.get("diagnostic", {}).get("run_dir", "runs/diagnostic/3083")
-diag_run_id = Path(diag_run_dir).name
-diag_run_path = Path(diag_run_dir)
-diag_cfg_path = diag_run_path / "config.yaml"
-
-if not diag_cfg_path.exists():
-    st.error(f"Diagnostic run config not found at {diag_cfg_path}.")
-    st.stop()
-
-with open(diag_cfg_path, "r") as f:
-    diag_cfg = yaml.safe_load(f)
+mon_cfg, mon_run_path, diag_cfg, diag_run_path = load_run_configs(mon_run_path)
+diag_run_id = diag_run_path.name
 
 # Load thresholds
-diag_thresh_path = diag_run_path / "thresholds.yaml"
-diag_slice_tau = 0.5
-diag_scan_tau = 0.5
-if diag_thresh_path.exists():
-    with open(diag_thresh_path, "r") as f:
-        th_data = yaml.safe_load(f)
-        diag_slice_tau = float(th_data.get("slice", [0.5])[0])
-        diag_scan_tau = float(th_data.get("scan", [0.5])[0])
+diag_thresh = load_thresholds_from_run(diag_run_path)
+diag_slice_tau = resolve_threshold(diag_thresh, "slice", 0)
+diag_scan_tau = resolve_threshold(diag_thresh, "scan", 0)
 
-mon_thresh_path = mon_run_path / "thresholds.yaml"
-mon_slice_tau = 0.5
-mon_scan_tau = 0.5
-if mon_thresh_path.exists():
-    with open(mon_thresh_path, "r") as f:
-        m_th = yaml.safe_load(f)
-        mon_slice_tau = float(m_th.get("slice", [0.5])[0])
-        mon_scan_tau = float(m_th.get("scan", [0.5])[0])
+mon_thresh = load_thresholds_from_run(mon_run_path)
+mon_slice_tau = resolve_threshold(mon_thresh, "slice", 0)
+mon_scan_tau = resolve_threshold(mon_thresh, "scan", 0)
 
 st.sidebar.markdown(f"**Diagnostic Model**: `{diag_run_id}`")
 st.sidebar.markdown(f"**Diag Slice tau**: `{diag_slice_tau:.4f}` | **Scan tau**: `{diag_scan_tau:.4f}`")
@@ -87,19 +56,6 @@ aggregation = st.sidebar.radio("Aggregation Level", ["Slice-level", "Scan-level 
 enable_gradcam = st.sidebar.checkbox("Compute Grad-CAM Attentions", value=True)
 
 
-def force_garbage_collect():
-    """Forces Python GC, releases CUDA memory cache, and trims C heap fragmentation."""
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
-    try:
-        libc = ctypes.CDLL("libc.so.6")
-        libc.malloc_trim(0)
-    except Exception:
-        pass
-
-
 def clear_session_cache():
     """Clears all session-cached data and tensors."""
     keys_to_clear = [
@@ -109,64 +65,6 @@ def clear_session_cache():
     for k in keys_to_clear:
         st.session_state.pop(k, None)
     force_garbage_collect()
-
-
-@st.cache_resource(max_entries=1)
-def load_models(diag_dir_str, mon_dir_str):
-    force_garbage_collect()
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    with open(Path(diag_dir_str) / "config.yaml", "r") as f:
-        d_cfg = yaml.safe_load(f)
-    with open(Path(mon_dir_str) / "config.yaml", "r") as f:
-        m_cfg = yaml.safe_load(f)
-
-    # Diagnostic model
-    d_arch = d_cfg["model"]["model"]
-    DiagClass = get_diag_model(d_arch)
-    d_model = DiagClass(num_classes=1, **d_cfg["model"].get("params", {})).to(device)
-    d_ckpt = torch.load(Path(diag_dir_str) / "best_model.pt", map_location=device, weights_only=False)
-    d_model.load_state_dict(d_ckpt["model_state_dict"])
-    d_model.eval()
-
-    # Monitor model
-    m_arch = m_cfg["model"]["model"]
-    MonClass = get_mon_model(m_arch)
-    m_model = MonClass(num_classes=1, **m_cfg["model"].get("params", {})).to(device)
-    m_ckpt = torch.load(Path(mon_dir_str) / "best_model.pt", map_location=device, weights_only=False)
-    m_model.load_state_dict(m_ckpt["model_state_dict"])
-    m_model.eval()
-
-    return d_model, m_model, d_arch, m_arch, device
-
-
-def compute_gradcam_overlay(model, arch_name, input_tensor, vis_rgb):
-    try:
-        if arch_name == "vit":
-            target_layers = [model.backbone.blocks[-1].norm1]
-            def reshape_transform(tensor, height=14, width=14):
-                result = tensor[:, 1:, :].reshape(tensor.size(0), height, width, tensor.size(2))
-                result = result.transpose(2, 3).transpose(1, 2)
-                return result
-            with GradCAM(model=model, target_layers=target_layers, reshape_transform=reshape_transform) as cam:
-                cam_map = cam(input_tensor=input_tensor, targets=[ClassifierOutputTarget(0)])[0, :]
-                return show_cam_on_image(vis_rgb, cam_map, use_rgb=True)
-        elif arch_name == "densenet":
-            target_layers = [model.backbone.features[-1]]
-            with GradCAM(model=model, target_layers=target_layers) as cam:
-                cam_map = cam(input_tensor=input_tensor, targets=[ClassifierOutputTarget(0)])[0, :]
-                return show_cam_on_image(vis_rgb, cam_map, use_rgb=True)
-        else:
-            for name, module in reversed(list(model.named_modules())):
-                if isinstance(module, (torch.nn.Conv2d, torch.nn.BatchNorm2d)):
-                    with GradCAM(model=model, target_layers=[module]) as cam:
-                        cam_map = cam(input_tensor=input_tensor, targets=[ClassifierOutputTarget(0)])[0, :]
-                        return show_cam_on_image(vis_rgb, cam_map, use_rgb=True)
-            raise ValueError(f"No suitable convolutional target layer found for {arch_name}")
-    finally:
-        # Zero out and release all parameter gradients created during the GradCAM backward pass
-        model.zero_grad(set_to_none=True)
 
 
 # File Uploader (Accepts all file types including extensionless DICOM files)

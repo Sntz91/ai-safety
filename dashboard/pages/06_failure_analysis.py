@@ -1,45 +1,30 @@
 import os
-import gc
-import sys
-import yaml
-import ctypes
-import torch
 import numpy as np
 import pandas as pd
 from PIL import Image
 from pathlib import Path
 import streamlit as st
 import torchvision.transforms.v2 as T_v2
-from pytorch_grad_cam import GradCAM
-from pytorch_grad_cam.utils.image import show_cam_on_image
-from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
-sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
-from ai_safety.models.diagnostic import get_model as get_diag_model
-from ai_safety.models.monitor import get_model as get_mon_model
+from ai_safety.constants import HIGH_CONF_THRESHOLD_LOW, HIGH_CONF_THRESHOLD_HIGH
 from ai_safety.data import DATASET_REGISTRY
 from ai_safety.data.dataset import CTSliceDataset
 from ai_safety.data.transforms import Transform, apply_window
+from ai_safety.utils.helpers import load_thresholds_from_run, resolve_threshold, extract_subtypes
+from dashboard.utils import (
+    force_garbage_collect,
+    load_models,
+    compute_gradcam_overlay,
+    require_runs_dir,
+    load_run_configs,
+)
 
 st.set_page_config(page_title="Failure Analysis", layout="wide")
 st.title("Failure Analysis")
 
 
-def force_garbage_collect():
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    try:
-        libc = ctypes.CDLL("libc.so.6")
-        libc.malloc_trim(0)
-    except Exception:
-        pass
-
-
 MON_DIR = Path("runs/monitor")
-if not MON_DIR.exists() or not list(MON_DIR.iterdir()):
-    st.error("No monitor runs found in runs/monitor/.")
-    st.stop()
+require_runs_dir(MON_DIR, "No monitor runs found in runs/monitor/.")
 
 monitor_runs = sorted([d.name for d in MON_DIR.iterdir() if d.is_dir()], reverse=True)
 
@@ -48,25 +33,8 @@ selected_mon_run = st.sidebar.selectbox("Select Monitor Run", monitor_runs)
 
 # Load monitor config to resolve diagnostic run
 mon_run_path = MON_DIR / selected_mon_run
-mon_cfg_path = mon_run_path / "config.yaml"
-if not mon_cfg_path.exists():
-    st.error(f"Config not found for monitor run {selected_mon_run}.")
-    st.stop()
-
-with open(mon_cfg_path, "r") as f:
-    mon_cfg = yaml.safe_load(f)
-
-diag_run_dir = mon_cfg.get("diagnostic", {}).get("run_dir", "runs/diagnostic/3083")
-diag_run_id = Path(diag_run_dir).name
-diag_run_path = Path(diag_run_dir)
-diag_cfg_path = diag_run_path / "config.yaml"
-
-if not diag_cfg_path.exists():
-    st.error(f"Diagnostic run config not found at {diag_cfg_path}.")
-    st.stop()
-
-with open(diag_cfg_path, "r") as f:
-    diag_cfg = yaml.safe_load(f)
+mon_cfg, mon_run_path, diag_cfg, diag_run_path = load_run_configs(mon_run_path)
+diag_run_id = diag_run_path.name
 
 # Find available prediction files for this monitor run
 pred_files = list(mon_run_path.glob("predictions-*.csv"))
@@ -78,18 +46,8 @@ available_datasets = sorted([f.name.replace("predictions-", "").replace(".csv", 
 selected_ds = st.sidebar.selectbox("Select Evaluation Cohort", available_datasets)
 
 # Load thresholds
-diag_thresh_path = diag_run_path / "thresholds.yaml"
-mon_thresh_path = mon_run_path / "thresholds.yaml"
-
-diag_thresh_dict = {}
-if diag_thresh_path.exists():
-    with open(diag_thresh_path, "r") as f:
-        diag_thresh_dict = yaml.safe_load(f)
-
-mon_thresh_dict = {}
-if mon_thresh_path.exists():
-    with open(mon_thresh_path, "r") as f:
-        mon_thresh_dict = yaml.safe_load(f)
+diag_thresh_dict = load_thresholds_from_run(diag_run_path)
+mon_thresh_dict = load_thresholds_from_run(mon_run_path)
 
 
 @st.cache_data
@@ -109,7 +67,7 @@ if df_merged is None or df_merged.empty:
     st.stop()
 
 # Find available subtypes
-subtypes = [c.replace("label_", "").replace("_diag", "") for c in df_merged.columns if c.startswith("label_") and c.endswith("_diag")]
+subtypes = extract_subtypes(df_merged.columns, suffix="_diag")
 if not subtypes:
     st.error("No valid diagnostic label columns found in prediction file.")
     st.stop()
@@ -117,8 +75,8 @@ if not subtypes:
 selected_subtype = st.sidebar.selectbox("Select Target Subtype", subtypes)
 subtype_idx = subtypes.index(selected_subtype)
 
-diag_slice_tau = float(diag_thresh_dict.get("slice", [0.5])[subtype_idx]) if "slice" in diag_thresh_dict and subtype_idx < len(diag_thresh_dict["slice"]) else 0.5
-mon_slice_tau = float(mon_thresh_dict.get("slice", [0.5])[subtype_idx]) if "slice" in mon_thresh_dict and subtype_idx < len(mon_thresh_dict["slice"]) else 0.5
+diag_slice_tau = resolve_threshold(diag_thresh_dict, "slice", subtype_idx)
+mon_slice_tau = resolve_threshold(mon_thresh_dict, "slice", subtype_idx)
 
 st.sidebar.markdown(f"**Diagnostic Model**: `{diag_run_id}` ($\\tau={diag_slice_tau:.4f}$)")
 st.sidebar.markdown(f"**Secondary Monitor**: `{selected_mon_run}` ($\\tau={mon_slice_tau:.4f}$)")
@@ -145,8 +103,8 @@ total_cohort = len(df_eval)
 total_errors = int(is_error.sum())
 all_fn_mask = (y_true_all == 1) & (diag_preds == 0)
 all_fp_mask = (y_true_all == 0) & (diag_preds == 1)
-hc_fn_mask = all_fn_mask & (p_diag_all <= 0.10)
-hc_fp_mask = all_fp_mask & (p_diag_all >= 0.80)
+hc_fn_mask = all_fn_mask & (p_diag_all <= HIGH_CONF_THRESHOLD_LOW)
+hc_fp_mask = all_fp_mask & (p_diag_all >= HIGH_CONF_THRESHOLD_HIGH)
 mon_false_alarm_mask = (~is_error) & (mon_preds == 1)
 
 hc_fn_count = int(hc_fn_mask.sum())
@@ -237,60 +195,6 @@ with col_m4:
 st.markdown("### Visual Feature Attribution")
 
 
-@st.cache_resource(max_entries=1)
-def load_pytorch_models(diag_dir_str, mon_dir_str):
-    force_garbage_collect()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    with open(Path(diag_dir_str) / "config.yaml", "r") as f:
-        d_cfg = yaml.safe_load(f)
-    with open(Path(mon_dir_str) / "config.yaml", "r") as f:
-        m_cfg = yaml.safe_load(f)
-
-    d_arch = d_cfg["model"]["model"]
-    DiagClass = get_diag_model(d_arch)
-    d_model = DiagClass(num_classes=1, **d_cfg["model"].get("params", {})).to(device)
-    d_ckpt = torch.load(Path(diag_dir_str) / "best_model.pt", map_location=device, weights_only=False)
-    d_model.load_state_dict(d_ckpt["model_state_dict"])
-    d_model.eval()
-
-    m_arch = m_cfg["model"]["model"]
-    MonClass = get_mon_model(m_arch)
-    m_model = MonClass(num_classes=1, **m_cfg["model"].get("params", {})).to(device)
-    m_ckpt = torch.load(Path(mon_dir_str) / "best_model.pt", map_location=device, weights_only=False)
-    m_model.load_state_dict(m_ckpt["model_state_dict"])
-    m_model.eval()
-
-    return d_model, m_model, d_arch, m_arch, device
-
-
-def compute_gradcam_overlay(model, arch_name, input_tensor, vis_rgb):
-    try:
-        if arch_name == "vit":
-            target_layers = [model.backbone.blocks[-1].norm1]
-            def reshape_transform(tensor, height=14, width=14):
-                result = tensor[:, 1:, :].reshape(tensor.size(0), height, width, tensor.size(2))
-                result = result.transpose(2, 3).transpose(1, 2)
-                return result
-            with GradCAM(model=model, target_layers=target_layers, reshape_transform=reshape_transform) as cam:
-                cam_map = cam(input_tensor=input_tensor, targets=[ClassifierOutputTarget(0)])[0, :]
-                return show_cam_on_image(vis_rgb, cam_map, use_rgb=True)
-        elif arch_name == "densenet":
-            target_layers = [model.backbone.features[-1]]
-            with GradCAM(model=model, target_layers=target_layers) as cam:
-                cam_map = cam(input_tensor=input_tensor, targets=[ClassifierOutputTarget(0)])[0, :]
-                return show_cam_on_image(vis_rgb, cam_map, use_rgb=True)
-        else:
-            for name, module in reversed(list(model.named_modules())):
-                if isinstance(module, (torch.nn.Conv2d, torch.nn.BatchNorm2d)):
-                    with GradCAM(model=model, target_layers=[module]) as cam:
-                        cam_map = cam(input_tensor=input_tensor, targets=[ClassifierOutputTarget(0)])[0, :]
-                        return show_cam_on_image(vis_rgb, cam_map, use_rgb=True)
-            raise ValueError(f"No suitable target layer found for {arch_name}")
-    finally:
-        model.zero_grad(set_to_none=True)
-
-
 # Retrieve raw image
 sample_dataset_name = str(selected_row["dataset"])
 target_sop_uid = str(selected_row["sop_uid"])
@@ -317,7 +221,7 @@ if raw_img is not None:
     t_input = transform(raw_img).unsqueeze(0)
 
     try:
-        d_model, m_model, d_arch, m_arch, device = load_pytorch_models(str(diag_run_path), str(mon_run_path))
+        d_model, m_model, d_arch, m_arch, device = load_models(str(diag_run_path), str(mon_run_path))
         t_batch = t_input.to(device)
 
         d_overlay = compute_gradcam_overlay(d_model, d_arch, t_batch, vis_base)

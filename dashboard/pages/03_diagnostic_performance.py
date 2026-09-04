@@ -4,9 +4,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 from pathlib import Path
-import sys
-
-sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
+from ai_safety.constants import HIGH_CONF_THRESHOLD_LOW, HIGH_CONF_THRESHOLD_HIGH
 from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
 
 st.set_page_config(page_title="Diagnostic Performance", layout="wide")
@@ -78,8 +76,8 @@ def compute_failure_stats(df, subtype, level, d_thresh):
     y_pred = (p >= d_thresh).astype(int)
     is_err = (y != y_pred)
     n_err = int(is_err.sum())
-    n_silent_fn = int(((p <= 0.10) & (y == 1)).sum())
-    n_silent_fp = int(((p >= 0.80) & (y == 0)).sum())
+    n_silent_fn = int(((p <= HIGH_CONF_THRESHOLD_LOW) & (y == 1)).sum())
+    n_silent_fp = int(((p >= HIGH_CONF_THRESHOLD_HIGH) & (y == 0)).sum())
     n_silent = n_silent_fn + n_silent_fp
     n_bound = max(0, n_err - n_silent)
     return {
