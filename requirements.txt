@@ -14,5 +14,5 @@ timm
 matplotlib
 streamlit
 plotly
-pytorch-grad-cam
+grad-cam
 Pillow
