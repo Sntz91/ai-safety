@@ -7,49 +7,14 @@ import torch
 from torch.utils.data import ConcatDataset
 
 from ai_safety.data.transforms import Transform
+from ai_safety.data.dataset import build_diagnostic_dataset, build_monitor_dataset
 from ai_safety.utils.losses import get_loss
 from ai_safety.utils.trainer import train_model, generate_predictions
 from ai_safety.evaluation.thresholds import (
     get_thresholds_for_sensitivity,
     get_scan_thresholds_for_sensitivity,
 )
-
-from ai_safety.data.dataset import CTSliceDataset, MonitorDataset
-from ai_safety.data import DATASET_REGISTRY
-
-
-def build_diagnostic_dataset(dataset_cfg, transform, binary, return_sopuid=False):
-    if not isinstance(dataset_cfg, list):
-        dataset_cfg = [dataset_cfg]
-    datasets = []
-    for item in dataset_cfg:
-        ds = CTSliceDataset(
-            tar_root=DATASET_REGISTRY[item["dataset"]],
-            split_path=item["split"],
-            binary=binary,
-            transform=transform,
-            return_sopuid=return_sopuid,
-        )
-        ds.dataset_name = item["dataset"]
-        datasets.append(ds)
-    return datasets[0] if len(datasets) == 1 else ConcatDataset(datasets)
-
-def build_monitor_dataset(dataset_cfg, diagnostic_dir, thresholds, transform, binary, subtype, return_sopuid=False):
-    if not isinstance(dataset_cfg, list):
-        dataset_cfg = [dataset_cfg]
-    datasets = []
-    for item in dataset_cfg:
-        pred_path = Path(diagnostic_dir) / f"predictions-{item['name']}.csv"
-        ds = MonitorDataset(
-            predictions_path=pred_path,
-            thresholds=thresholds,
-            binary=binary,
-            subtype=subtype,
-            transform=transform,
-        )
-        ds.return_sopuid = return_sopuid
-        datasets.append(ds)
-    return datasets[0] if len(datasets) == 1 else ConcatDataset(datasets)
+from ai_safety.constants import DEFAULT_TARGET_SENSITIVITY
 
 def main():
     parser = argparse.ArgumentParser(description="Unified Training Script")
@@ -164,8 +129,8 @@ def main():
         batch_size=cfg["training"]["batch_size"], num_workers=cfg["training"]["num_workers"]
     )
     
-    slice_thresholds = get_thresholds_for_sensitivity(val_preds, target_sens=0.85)
-    scan_thresholds = get_scan_thresholds_for_sensitivity(val_preds, target_sens=0.85, k=3)
+    slice_thresholds = get_thresholds_for_sensitivity(val_preds, target_sens=DEFAULT_TARGET_SENSITIVITY)
+    scan_thresholds = get_scan_thresholds_for_sensitivity(val_preds, target_sens=DEFAULT_TARGET_SENSITIVITY, k=3)
     thresholds = {'slice': slice_thresholds, 'scan': scan_thresholds}
         
     thresh_path = os.path.join(args.output_dir, "thresholds.yaml")

@@ -1,5 +1,6 @@
 import numpy as np
 
+from ai_safety.constants import DEFAULT_TARGET_SENSITIVITY
 from ai_safety.evaluation.bootstrap import bootstrap_metric
 from ai_safety.utils.curves import get_roc_curve, get_pr_curve
 
@@ -59,8 +60,8 @@ def evaluate_binary(y_true, y_prob, locked_threshold=0.5, bootstraps=100, metric
     }
 
     # 3. Operating Point Thresholds
-    # Optimal Sensitivity (>= 85%)
-    valid_idx = np.where(tpr >= 0.85)[0]
+    # Optimal Sensitivity (>= target)
+    valid_idx = np.where(tpr >= DEFAULT_TARGET_SENSITIVITY)[0]
     t_opt_sens = float(np.clip(roc_t[valid_idx[0]], 0.0, 1.0)) if len(valid_idx) > 0 else 0.5
 
     # Optimal F1 Score

@@ -1,9 +1,13 @@
 import pandas as pd
+
+from ai_safety.constants import HIGH_CONF_THRESHOLD_LOW, HIGH_CONF_THRESHOLD_HIGH
 from ai_safety.evaluation.evaluator import evaluate_binary
 from ai_safety.evaluation.metrics.monitor.budgets import evaluate as evaluate_budgets, evaluate_curve as evaluate_budgets_curve
 from ai_safety.models.monitor.threshold_distance import compute_s_dist
+from ai_safety.models.monitor.fusion import fuse_risk
 from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
 from ai_safety.models.monitor.aggregation import aggregate_dual_pooling_to_scan_level
+from ai_safety.utils.helpers import extract_subtypes
 
 
 def evaluate_monitor_risk(
@@ -67,7 +71,7 @@ def evaluate_monitor_dataset(
         ds_metrics: Nested dict of metrics per subtype, cohort, level, and model.
         ds_curves: Nested dict of curves per subtype, cohort, level, and model.
     """
-    subtypes = [c.replace("label_", "").replace("_mon", "") for c in df.columns if c.startswith("label_") and c.endswith("_mon")]
+    subtypes = extract_subtypes(df.columns, suffix="_mon")
     if not subtypes:
         subtypes = [c.replace("label_", "") for c in df.columns if c.startswith("label_")]
 
@@ -85,12 +89,13 @@ def evaluate_monitor_dataset(
         y_true_slice = df[f"label_{subtype}_mon"].values
         mon_risk_slice = df[f"prob_{subtype}_mon"].values
         sdist_risk_slice = compute_s_dist(p_diag, diag_t_slice)
+        fusion_risk_slice = fuse_risk(mon_risk_slice, sdist_risk_slice, weight=0.5)
 
         slice_error_masks = {
             "all": pd.Series(True, index=df.index),
-            "high_conf": ((p_diag <= 0.10) & (y_diag == 1)) | ((p_diag >= 0.80) & (y_diag == 0)),
-            "high_conf_fn": (p_diag <= 0.10) & (y_diag == 1),
-            "high_conf_fp": (p_diag >= 0.80) & (y_diag == 0),
+            "high_conf": ((p_diag <= HIGH_CONF_THRESHOLD_LOW) & (y_diag == 1)) | ((p_diag >= HIGH_CONF_THRESHOLD_HIGH) & (y_diag == 0)),
+            "high_conf_fn": (p_diag <= HIGH_CONF_THRESHOLD_LOW) & (y_diag == 1),
+            "high_conf_fp": (p_diag >= HIGH_CONF_THRESHOLD_HIGH) & (y_diag == 0),
         }
 
         scan_error_masks = {}
@@ -107,18 +112,21 @@ def evaluate_monitor_dataset(
             _, scan_sdist_risk = aggregate_dual_pooling_to_scan_level(
                 series_ids, diag_probs=orig_diag_probs, mon_probs=sdist_risk_slice, diag_threshold=diag_t_slice, k=k
             )
+            _, scan_fusion_risk = aggregate_dual_pooling_to_scan_level(
+                series_ids, diag_probs=orig_diag_probs, mon_probs=fusion_risk_slice, diag_threshold=diag_t_slice, k=k
+            )
             scan_error_masks = {
                 "all": pd.Series(True, index=range(len(scan_diag_probs))),
-                "high_conf": ((scan_diag_probs <= 0.10) & (scan_diag_gts == 1)) | ((scan_diag_probs >= 0.80) & (scan_diag_gts == 0)),
-                "high_conf_fn": (scan_diag_probs <= 0.10) & (scan_diag_gts == 1),
-                "high_conf_fp": (scan_diag_probs >= 0.80) & (scan_diag_gts == 0),
+                "high_conf": ((scan_diag_probs <= HIGH_CONF_THRESHOLD_LOW) & (scan_diag_gts == 1)) | ((scan_diag_probs >= HIGH_CONF_THRESHOLD_HIGH) & (scan_diag_gts == 0)),
+                "high_conf_fn": (scan_diag_probs <= HIGH_CONF_THRESHOLD_LOW) & (scan_diag_gts == 1),
+                "high_conf_fp": (scan_diag_probs >= HIGH_CONF_THRESHOLD_HIGH) & (scan_diag_gts == 0),
             }
 
         cohorts = {
             "all": df,
-            "high_conf": df[(p_diag <= 0.10) | (p_diag >= 0.80)].reset_index(drop=True),
-            "high_conf_fn": df[p_diag <= 0.10].reset_index(drop=True),
-            "high_conf_fp": df[p_diag >= 0.80].reset_index(drop=True),
+            "high_conf": df[(p_diag <= HIGH_CONF_THRESHOLD_LOW) | (p_diag >= HIGH_CONF_THRESHOLD_HIGH)].reset_index(drop=True),
+            "high_conf_fn": df[p_diag <= HIGH_CONF_THRESHOLD_LOW].reset_index(drop=True),
+            "high_conf_fp": df[p_diag >= HIGH_CONF_THRESHOLD_HIGH].reset_index(drop=True),
         }
 
         sub_metrics = {}
@@ -140,25 +148,35 @@ def evaluate_monitor_dataset(
                 c_df, subtype, sdist_risk, diag_t_slice, diag_t_scan, t_slice, t_scan, bootstraps, metric_funcs, k=k
             )
 
+            # Hybrid fusion: monitor risk + decision risk
+            fusion_risk = fuse_risk(mon_risk, sdist_risk, weight=0.5)
+            f_sl, f_slc, f_sc, f_scc = evaluate_monitor_risk(
+                c_df, subtype, fusion_risk, diag_t_slice, diag_t_scan, t_slice, t_scan, bootstraps, metric_funcs, k=k
+            )
+
             # Global audit budget evaluation
             m_sl["clinical_utility"] = evaluate_budgets(mon_risk_slice, y_true_slice, mask=slice_error_masks[c_name])
             t_sl["clinical_utility"] = evaluate_budgets(sdist_risk_slice, y_true_slice, mask=slice_error_masks[c_name])
+            f_sl["clinical_utility"] = evaluate_budgets(fusion_risk_slice, y_true_slice, mask=slice_error_masks[c_name])
             m_slc["budget_curve"] = evaluate_budgets_curve(mon_risk_slice, y_true_slice, mask=slice_error_masks[c_name])
             t_slc["budget_curve"] = evaluate_budgets_curve(sdist_risk_slice, y_true_slice, mask=slice_error_masks[c_name])
+            f_slc["budget_curve"] = evaluate_budgets_curve(fusion_risk_slice, y_true_slice, mask=slice_error_masks[c_name])
 
             if scan_error_masks:
                 m_sc["clinical_utility"] = evaluate_budgets(scan_mon_risk, scan_true, mask=scan_error_masks[c_name])
                 t_sc["clinical_utility"] = evaluate_budgets(scan_sdist_risk, scan_true, mask=scan_error_masks[c_name])
+                f_sc["clinical_utility"] = evaluate_budgets(scan_fusion_risk, scan_true, mask=scan_error_masks[c_name])
                 m_scc["budget_curve"] = evaluate_budgets_curve(scan_mon_risk, scan_true, mask=scan_error_masks[c_name])
                 t_scc["budget_curve"] = evaluate_budgets_curve(scan_sdist_risk, scan_true, mask=scan_error_masks[c_name])
+                f_scc["budget_curve"] = evaluate_budgets_curve(scan_fusion_risk, scan_true, mask=scan_error_masks[c_name])
 
             sub_metrics[c_name] = {
-                "slice_level": {"monitor": m_sl, "threshold_distance": t_sl},
-                "scan_level": {"monitor": m_sc, "threshold_distance": t_sc},
+                "slice_level": {"monitor": m_sl, "threshold_distance": t_sl, "fusion": f_sl},
+                "scan_level": {"monitor": m_sc, "threshold_distance": t_sc, "fusion": f_sc},
             }
             sub_curves[c_name] = {
-                "slice_level": {"monitor": m_slc, "threshold_distance": t_slc},
-                "scan_level": {"monitor": m_scc, "threshold_distance": t_scc},
+                "slice_level": {"monitor": m_slc, "threshold_distance": t_slc, "fusion": f_slc},
+                "scan_level": {"monitor": m_scc, "threshold_distance": t_scc, "fusion": f_scc},
             }
 
         ds_metrics[subtype] = sub_metrics

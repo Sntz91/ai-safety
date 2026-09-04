@@ -1,9 +1,11 @@
 import numpy as np
 from sklearn.metrics import roc_curve, precision_recall_curve
+
+from ai_safety.constants import DEFAULT_TARGET_SENSITIVITY
 from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
 
 
-def _threshold_for_sensitivity(y_true, y_prob, target_sens=0.85):
+def _threshold_for_sensitivity(y_true, y_prob, target_sens=DEFAULT_TARGET_SENSITIVITY):
     if y_true.sum() == 0:
         return 0.5
     fpr, tpr, th = roc_curve(y_true, y_prob, drop_intermediate=False)
@@ -24,7 +26,7 @@ def _threshold_for_f1(y_true, y_prob):
     return 1.0
 
 
-def get_thresholds_for_sensitivity(preds, target_sens: float = 0.85):
+def get_thresholds_for_sensitivity(preds, target_sens: float = DEFAULT_TARGET_SENSITIVITY):
     """Computes the probability threshold required to hit target sensitivity per class."""
     return [
         _threshold_for_sensitivity(preds.labels[:, i], preds.probs[:, i], target_sens)
@@ -40,7 +42,7 @@ def get_thresholds_for_f1(preds):
     ]
 
 
-def get_scan_thresholds_for_sensitivity(preds, target_sens: float = 0.85, k: int = 3):
+def get_scan_thresholds_for_sensitivity(preds, target_sens: float = DEFAULT_TARGET_SENSITIVITY, k: int = 3):
     """Computes the probability threshold required to hit target sensitivity at the scan level."""
     thresholds = []
     for i in range(preds.probs.shape[1]):
