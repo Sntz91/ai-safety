@@ -1,13 +1,10 @@
 import argparse
-import json
 import yaml
 import pandas as pd
 from pathlib import Path
 
-import sys
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-
-from ai_safety.evaluation import metrics, discover_metrics, evaluate_monitor_dataset
+from ai_safety.evaluation import metrics, evaluate_monitor_dataset, evaluate_run
+from ai_safety.utils.helpers import load_thresholds_from_run
 
 
 def main():
@@ -18,67 +15,40 @@ def main():
 
     run_dir = Path("runs/monitor") / args.run_id
     out_dir = Path("experiments/outputs/monitor") / args.run_id
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     with open(run_dir / "config.yaml", "r") as f:
         mon_cfg = yaml.safe_load(f)
     diag_dir = Path(mon_cfg["diagnostic"]["run_dir"])
 
-    # Load diagnostic thresholds (needed for dual pooling)
-    with open(diag_dir / "thresholds.yaml", "r") as f:
-        diag_thresh = yaml.safe_load(f)
+    # Diagnostic thresholds (needed for dual pooling)
+    diag_thresh = load_thresholds_from_run(diag_dir)
     diag_slice_thresholds = diag_thresh["slice"]
-    diag_scan_thresholds = diag_thresh.get("scan", [0.5] * len(diag_slice_thresholds))
+    diag_scan_thresholds = diag_thresh["scan"]
 
-    # Load monitor thresholds
-    with open(run_dir / "thresholds.yaml", "r") as f:
-        mon_thresh = yaml.safe_load(f)
-    slice_thresholds = mon_thresh["slice"]
-    scan_thresholds = mon_thresh["scan"]
+    # Monitor thresholds
+    mon_thresh = load_thresholds_from_run(run_dir)
+    mon_slice_thresholds = mon_thresh["slice"]
+    mon_scan_thresholds = mon_thresh["scan"]
 
-    metric_funcs = discover_metrics(metrics.shared, metrics.monitor)
-    print("Discovered metrics:", list(metric_funcs.keys()))
-
-    metrics_out = {}
-    curves_out = {}
-
-    pred_files = list(run_dir.glob("predictions-*.csv"))
-    if not pred_files:
-        raise FileNotFoundError(f"No prediction files found in {run_dir}")
-
-    for p_file in pred_files:
-        df_mon = pd.read_csv(p_file)
-
+    def merge_with_diagnostic(df_mon, p_file):
         diag_file = diag_dir / p_file.name
         if not diag_file.exists():
-            print(f"Warning: {diag_file} not found! Skipping {p_file.name}")
-            continue
+            raise FileNotFoundError(f"Diagnostic prediction file not found: {diag_file}")
         df_diag = pd.read_csv(diag_file)
+        return df_mon.merge(df_diag, on=["sop_uid", "series_id", "dataset"], suffixes=("_mon", "_diag"))
 
-        # Merge to align diagnostic and monitor predictions
-        df = df_mon.merge(df_diag, on=["sop_uid", "series_id", "dataset"], suffixes=("_mon", "_diag"))
-
-        dataset_name = p_file.stem.replace("predictions-", "")
-        print(f"Processing {dataset_name} ({len(df)} samples)...")
-
-        ds_metrics, ds_curves = evaluate_monitor_dataset(
-            df=df,
-            diag_slice_thresholds=diag_slice_thresholds,
-            diag_scan_thresholds=diag_scan_thresholds,
-            mon_slice_thresholds=slice_thresholds,
-            mon_scan_thresholds=scan_thresholds,
-            bootstraps=args.bootstraps,
-            metric_funcs=metric_funcs,
-        )
-
-        metrics_out[dataset_name] = ds_metrics
-        curves_out[dataset_name] = ds_curves
-
-    with open(out_dir / "metrics.json", "w") as f:
-        json.dump(metrics_out, f, indent=4)
-
-    with open(out_dir / "curves.json", "w") as f:
-        json.dump(curves_out, f)
+    evaluate_run(
+        run_dir=run_dir,
+        out_dir=out_dir,
+        metric_packages=[metrics.shared, metrics.monitor],
+        evaluate_fn=evaluate_monitor_dataset,
+        diag_slice_thresholds=diag_slice_thresholds,
+        diag_scan_thresholds=diag_scan_thresholds,
+        mon_slice_thresholds=mon_slice_thresholds,
+        mon_scan_thresholds=mon_scan_thresholds,
+        bootstraps=args.bootstraps,
+        preprocess_fn=merge_with_diagnostic,
+    )
 
 
 if __name__ == "__main__":
