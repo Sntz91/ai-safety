@@ -1,6 +1,7 @@
 import numpy as np
 from collections import defaultdict
 from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
+from ai_safety.utils.helpers import is_valid_scan_id
 
 
 def aggregate_dual_pooling_to_scan_level(scan_ids, diag_probs, mon_probs, diag_threshold=0.5, k=3, slice_gts=None):
@@ -20,7 +21,7 @@ def aggregate_dual_pooling_to_scan_level(scan_ids, diag_probs, mon_probs, diag_t
     gt_dict = defaultdict(list)
 
     for i, scan_id in enumerate(scan_ids):
-        if scan_id is not None and str(scan_id) != "None" and str(scan_id) != "nan":
+        if is_valid_scan_id(scan_id):
             scan_dict_diag[scan_id].append(diag_probs[i])
             scan_dict_mon[scan_id].append(mon_probs[i])
             if slice_gts is not None:
@@ -66,7 +67,7 @@ def aggregate_topk_saliency_to_scan_level(scan_ids, diag_probs, mon_probs, k=3):
     scan_dict_mon = defaultdict(list)
 
     for i, scan_id in enumerate(scan_ids):
-        if scan_id is not None and str(scan_id) != "None" and str(scan_id) != "nan":
+        if is_valid_scan_id(scan_id):
             scan_dict_diag[scan_id].append(diag_probs[i])
             scan_dict_mon[scan_id].append(mon_probs[i])
 

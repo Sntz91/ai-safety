@@ -1,5 +1,6 @@
 from ai_safety.evaluation.evaluator import evaluate_binary
 from ai_safety.models.diagnostic.aggregation import aggregate_to_scan_level
+from ai_safety.utils.helpers import extract_subtypes
 
 
 def evaluate_diagnostic_dataset(df, slice_thresholds, scan_thresholds, bootstraps=100, metric_funcs=None, k=3):
@@ -17,7 +18,7 @@ def evaluate_diagnostic_dataset(df, slice_thresholds, scan_thresholds, bootstrap
         ds_metrics: Nested dict of metrics per subtype and aggregation level.
         ds_curves: Nested dict of curves per subtype and aggregation level.
     """
-    subtypes = [c.replace("label_", "") for c in df.columns if c.startswith("label_")]
+    subtypes = extract_subtypes(df.columns, suffix="")
     ds_metrics = {}
     ds_curves = {}
 

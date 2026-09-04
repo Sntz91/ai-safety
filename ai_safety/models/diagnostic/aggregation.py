@@ -1,6 +1,8 @@
 import numpy as np
 from collections import defaultdict
 
+from ai_safety.utils.helpers import is_valid_scan_id
+
 
 def aggregate_to_scan_level(scan_ids, slice_probs, slice_gts=None, k=3):
     """
@@ -21,7 +23,7 @@ def aggregate_to_scan_level(scan_ids, slice_probs, slice_gts=None, k=3):
     gt_dict = defaultdict(list)
 
     for i, scan_id in enumerate(scan_ids):
-        if scan_id is not None and str(scan_id) != "None" and str(scan_id) != "nan":
+        if is_valid_scan_id(scan_id):
             scan_dict[scan_id].append(slice_probs[i])
             if slice_gts is not None:
                 gt_dict[scan_id].append(slice_gts[i])
